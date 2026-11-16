@@ -4,51 +4,19 @@ Deep learning-based defect classification and segmentation models trained on the
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```text
 Defect-classifications/
-├── full_training/                # Production models trained for 100 epochs (Early Stopping)
-│   ├── bottle_production_best.pt
-│   ├── cable_production_best.pt
-│   ├── capsule_production_best.pt
-│   ├── carpet_production_best.pt
-│   ├── grid_production_best.pt
-│   ├── hazelnut_production_best.pt
-│   ├── leather_production_best.pt
-│   ├── metal_nut_production_best.pt
-│   ├── pill_production_best.pt
-│   ├── screw_production_best.pt
-│   ├── tile_production_best.pt
-│   ├── toothbrush_production_best.pt
-│   ├── transistor_production_best.pt
-│   ├── wood_production_best.pt
-│   └── zipper_production_best.pt
-├── rapid_training/               # Baseline models trained for 40 epochs
-│   ├── bottle_best.pt
-│   ├── cable_best.pt
-│   ├── capsule_best.pt
-│   ├── carpet_best.pt
-│   ├── grid_best.pt
-│   ├── hazelnut_best.pt
-│   ├── leather_best.pt
-│   ├── metal_nut_best.pt
-│   ├── pill_best.pt
-│   ├── screw_best.pt
-│   ├── tile_best.pt
-│   ├── toothbrush_best.pt
-│   ├── transistor_best.pt
-│   ├── wood_best.pt
-│   └── zipper_best.pt
-├── full_training_result.jpeg     # Validation & performance summary for full_training
+├── full_training/                # Production models for all 15 categories (*_production_best.pt, 100 epochs, early stopping)
+├── rapid_training/               # Baseline models for all 15 categories (*_best.pt, 40 epochs)
+├── full_training_result.jpeg     # Validation and performance summary for full_training
 ├── HAT+ quatization/             # Hailo AI HAT+ quantization and HEF compilation tools
 │   ├── compile_hef.py            # Python compiler script (YOLO .pt -> Hailo .hef)
 │   ├── run_compiler.sh           # Dockerized runner bridging host to Ubuntu 22.04 runtime
 │   ├── hailo_cli.sh              # Hailo CLI wrapper tool
 │   ├── README.md                 # Detailed compilation & deployment guide
 │   └── hef_output/               # Compiled Hailo Executable Format (.hef) binaries
-│       ├── tile_hailo8.hef
-│       └── zipper_hailo8.hef
 ├── pi_deployment/                # Pure HailoRT edge deployment package for Raspberry Pi 5
 │   ├── models/                   # Target HEF models and metadata (tile_hailo8.hef, metadata.yaml)
 │   ├── dataset/                  # Validation images and ground-truth polygon labels
@@ -65,7 +33,7 @@ Defect-classifications/
 
 ---
 
-## 🏋️ Model Training Configurations
+## Model Training Configurations
 
 ### 1. Full Training (`full_training/`)
 * **Epochs:** 100 epochs with **Early Stopping**.
@@ -80,7 +48,7 @@ Defect-classifications/
 
 ---
 
-## 📊 Training Results
+## Training Results
 
 The evaluation metrics and benchmark results from the `full_training` run are captured below:
 
@@ -88,7 +56,7 @@ The evaluation metrics and benchmark results from the `full_training` run are ca
 
 ---
 
-## ⚡ Hardware Acceleration & Model Quantization (`HAT+ quatization/`)
+## Hardware Acceleration & Model Quantization (`HAT+ quatization/`)
 
 This directory contains the compilation toolchain to quantize and compile PyTorch weights (`.pt`) into Hailo Executable Format (`.hef`) for edge inference on the **Raspberry Pi 5 with AI HAT+**.
 
@@ -117,7 +85,7 @@ Pre-compiled `.hef` binaries are available in `HAT+ quatization/hef_output/`. Se
 
 ---
 
-## 🍓 Raspberry Pi 5 Deployment (`pi_deployment/`)
+## Raspberry Pi 5 Deployment (`pi_deployment/`)
 
 A standalone, lightweight deployment package designed to run on a **Raspberry Pi 5** equipped with the **Raspberry Pi AI HAT+ (26 TOPS Hailo-8 / 13 TOPS Hailo-8L)**.
 

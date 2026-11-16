@@ -1,4 +1,4 @@
-# 🍓 Raspberry Pi AI HAT+ (26 TOPS) — Tile Defect Segmentation
+# Raspberry Pi AI HAT+ (26 TOPS) — Tile Defect Segmentation
 ### Pure Native HailoRT Runtime (Zero PyTorch / Zero Ultralytics)
 
 This folder contains a **complete, lightweight deployment package** for running real-time YOLO11 segmentation and **post-quantization accuracy/mAP evaluation** on a Raspberry Pi 5 equipped with the **Raspberry Pi AI HAT+ (26 TOPS / Hailo-8)**.
@@ -9,7 +9,7 @@ This folder contains a **complete, lightweight deployment package** for running 
 
 ---
 
-## 📁 Package Contents
+## Package Contents
 
 ```text
 pi_deployment/
@@ -34,7 +34,7 @@ pi_deployment/
 
 ---
 
-## 🚀 Quick Start (in 3 Steps)
+## Quick Start (in 3 Steps)
 
 ### Step 1: Copy this folder to your Raspberry Pi 5
 From your PC terminal:
@@ -65,7 +65,7 @@ chmod +x setup_pi.sh run_inference.sh inference.py evaluate_hef.py run_eval.sh
 
 ---
 
-## 📊 Checking Accuracy & mAP on the Board
+## Checking Accuracy & mAP on the Board
 
 To measure the exact post-quantization accuracy and mAP of the `.hef` model while running on the Raspberry Pi AI HAT+:
 
@@ -80,14 +80,14 @@ python3 evaluate_hef.py --conf 0.25 --iou 0.50
 ### What it Output in Terminal:
 ```text
 ======================================================================
-📊 Hailo-8 Quantized Model mAP & Accuracy Evaluation
+Hailo-8 Quantized Model mAP & Accuracy Evaluation
    Model       : tile_hailo8.hef
    Images Dir  : dataset/images
    Labels Dir  : dataset/labels
    Confidence  : 0.25
    IoU NMS     : 0.50
 ======================================================================
-🔍 Found 64 images to evaluate.
+Found 64 images to evaluate.
 Running hardware inference and collecting ground truth...
    [10/64] processed (11.8 ms/frame)...
    [20/64] processed (11.7 ms/frame)...
@@ -100,7 +100,7 @@ Class        Images   Instances  Box mAP50   Box mAP50-95  Mask mAP50   Mask mAP
 anomaly      64       25         0.958       0.784         0.945        0.751        
 ======================================================================
 
-📋 Detailed Metric Breakdown:
+Detailed Metric Breakdown:
    • Box Precision (P)    : 0.942
    • Box Recall (R)       : 0.920
    • Box F1-Score         : 0.931
@@ -109,19 +109,19 @@ anomaly      64       25         0.958       0.784         0.945        0.751
    • Mask F1-Score        : 0.921
    • Hardware Latency     : 11.65 ms (85.8 FPS)
 
-🏭 Industrial Pass / Fail Classification Accuracy:
+Industrial Pass / Fail Classification Accuracy:
    • Overall Accuracy     : 96.9% (62/64 images)
    • True Negatives (Pass): 43
    • True Positives (Def) : 19
    • False Alarms (FP)    : 1
    • Missed Defects (FN)  : 1
 
-✅ Full evaluation report saved to: results/evaluation_report.json
+Full evaluation report saved to: results/evaluation_report.json
 ```
 
 ---
 
-## 🛠️ Other Inference Options
+## Other Inference Options
 
 ### 1. Live Camera Stream (USB / CSI Camera)
 ```bash

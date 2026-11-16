@@ -19,7 +19,7 @@ The Raspberry Pi AI HAT+ comes in two distinct hardware variants:
 - **13 TOPS AI HAT+**: Uses the **Hailo-8L** chip. Use target `--arch hailo8l`.
 - **26 TOPS AI HAT+**: Uses the full **Hailo-8** chip. Use target `--arch hailo8`.
 
-> ⚠️ **Important**: A model compiled for `hailo8` will not load on a 13 TOPS HAT+ (`hailo8l`). Always compile targeting your specific hardware.
+> **Important**: A model compiled for `hailo8` will not load on a 13 TOPS HAT+ (`hailo8l`). Always compile targeting your specific hardware.
 
 ---
 
