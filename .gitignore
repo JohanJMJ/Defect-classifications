@@ -1,0 +1,25 @@
+# Calibration dataset (keep local, ignore from git/github)
+hailo_calibration_data/
+hailo_calibration_data
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+venv/
+env/
+ENV/
+.venv/
+pi_deployment/venv/
+
+# Results & runtime outputs
+pi_deployment/results/
+results/
+*.hef.log
+
+# OS artifacts
+.DS_Store
+Thumbs.db

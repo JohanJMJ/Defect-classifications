@@ -41,26 +41,34 @@ mkdir -p "${SCRIPT_DIR}/results"
 
 # Parse command line flags
 ARGS=()
-for arg in "$@"; do
-    case "$arg" in
+FIRST_ARG=true
+
+while [ $# -gt 0 ]; do
+    case "$1" in
         --camera)
             ARGS+=("--source" "0" "--show")
+            shift
+            ;;
+        --list-models|-l)
+            ARGS+=("--list-models")
+            shift
+            ;;
+        -m|--model|-c|--category)
+            ARGS+=("$1" "$2")
+            shift 2
             ;;
         *)
-            ARGS+=("$arg")
+            # If the first argument is not a flag (e.g. "bottle" or "bottle_hailo8.hef"), treat it as --model
+            if [ "$FIRST_ARG" = true ] && [[ ! "$1" =~ ^- ]]; then
+                ARGS+=("--model" "$1")
+            else
+                ARGS+=("$1")
+            fi
+            shift
             ;;
     esac
+    FIRST_ARG=false
 done
 
-# If no arguments provided, default to inspecting sample_images
-if [ ${#ARGS[@]} -eq 0 ]; then
-    echo "🚀 Running defect inspection on 'sample_images'..."
-    "${PYTHON_EXEC}" inference.py \
-        --model "models/tile_hailo8.hef" \
-        --source "sample_images" \
-        --output-dir "results"
-else
-    "${PYTHON_EXEC}" inference.py \
-        --model "models/tile_hailo8.hef" \
-        "${ARGS[@]}"
-fi
+# Run inference engine with arguments
+"${PYTHON_EXEC}" inference.py "${ARGS[@]}"

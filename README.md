@@ -18,14 +18,14 @@ Defect-classifications/
 │   ├── README.md                 # Detailed compilation & deployment guide
 │   └── hef_output/               # Compiled Hailo Executable Format (.hef) binaries
 ├── pi_deployment/                # Pure HailoRT edge deployment package for Raspberry Pi 5
-│   ├── models/                   # Target HEF models and metadata (tile_hailo8.hef, metadata.yaml)
+│   ├── models/                   # 9 Pre-compiled HEF models (bottle, cable, capsule, carpet, grid, hazelnut, pill, tile, zipper)
 │   ├── dataset/                  # Validation images and ground-truth polygon labels
-│   ├── sample_images/            # Test images for instant verification
+│   ├── sample_images/            # Categorized test images for each model
 │   ├── results/                  # Inference output directory (annotated images & reports)
 │   ├── inference.py              # Pure Native HailoRT inference engine (HUD, masks, JSON logs)
 │   ├── evaluate_hef.py           # On-device Box & Mask mAP evaluation script
 │   ├── run_eval.sh               # 1-click mAP and accuracy evaluation runner
-│   ├── run_inference.sh          # 1-click test runner (images, live camera, benchmark)
+│   ├── run_inference.sh          # 1-click test runner (select model, images, camera, benchmark)
 │   ├── setup_pi.sh               # 1-click Raspberry Pi OS setup script (~30 sec)
 │   └── README.md                 # Comprehensive deployment & evaluation guide
 └── README.md
@@ -111,14 +111,22 @@ A standalone, lightweight deployment package designed to run on a **Raspberry Pi
 
 3. **Run Defect Inspection & Benchmark:**
    ```bash
-   # Run inference on sample images:
+   # List all 9 available models:
+   ./run_inference.sh --list-models
+
+   # Run inference on default model (tile):
    ./run_inference.sh
 
+   # Run inference on any model (auto-selects sample images):
+   ./run_inference.sh bottle
+   ./run_inference.sh cable
+   ./run_inference.sh zipper
+
    # Stream from connected USB/CSI camera:
-   ./run_inference.sh --camera
+   ./run_inference.sh bottle --camera
 
    # Benchmark hardware latency & throughput:
-   ./run_inference.sh --benchmark
+   ./run_inference.sh --model bottle --benchmark
    ```
 
 4. **Run On-Device Accuracy & mAP Evaluation:**

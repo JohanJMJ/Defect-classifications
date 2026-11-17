@@ -26,9 +26,34 @@ echo "================================================================"
 
 mkdir -p "${SCRIPT_DIR}/results"
 
+# Parse arguments
+ARGS=()
+FIRST_ARG=true
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list-models|-l)
+            ARGS+=("--list-models")
+            shift
+            ;;
+        -m|--model|-c|--category)
+            ARGS+=("$1" "$2")
+            shift 2
+            ;;
+        *)
+            if [ "$FIRST_ARG" = true ] && [[ ! "$1" =~ ^- ]]; then
+                ARGS+=("--model" "$1")
+            else
+                ARGS+=("$1")
+            fi
+            shift
+            ;;
+    esac
+    FIRST_ARG=false
+done
+
 "${PYTHON_EXEC}" evaluate_hef.py \
-    --model "models/tile_hailo8.hef" \
     --images "dataset/images" \
     --labels "dataset/labels" \
     --output "results/evaluation_report.json" \
-    "$@"
+    "${ARGS[@]}"

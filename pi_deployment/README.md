@@ -1,4 +1,4 @@
-# Raspberry Pi AI HAT+ (26 TOPS) — Tile Defect Segmentation
+# Raspberry Pi AI HAT+ (26 TOPS) — Multi-Model Defect Segmentation
 ### Pure Native HailoRT Runtime (Zero PyTorch / Zero Ultralytics)
 
 This folder contains a **complete, lightweight deployment package** for running real-time YOLO11 segmentation and **post-quantization accuracy/mAP evaluation** on a Raspberry Pi 5 equipped with the **Raspberry Pi AI HAT+ (26 TOPS / Hailo-8)**.
@@ -13,14 +13,32 @@ This folder contains a **complete, lightweight deployment package** for running 
 
 ```text
 pi_deployment/
-├── models/
-│   ├── tile_hailo8.hef          # Compiled 26 TOPS Hailo-8 executable (21.6 MB)
-│   └── metadata.yaml            # Model metadata & segmentation classes
-├── dataset/                     # Complete validation dataset for accuracy/mAP evaluation
-│   ├── images/                  # 64 real validation images (normal & defects)
+├── models/                      # 9 Pre-compiled Hailo-8 HEF executables (26 TOPS)
+│   ├── bottle_hailo8.hef        # Bottle defect segmentation (21.7 MB)
+│   ├── cable_hailo8.hef         # Cable defect segmentation (21.8 MB)
+│   ├── capsule_hailo8.hef       # Capsule defect segmentation (21.5 MB)
+│   ├── carpet_hailo8.hef        # Carpet defect segmentation (21.7 MB)
+│   ├── grid_hailo8.hef          # Grid defect segmentation (21.4 MB)
+│   ├── hazelnut_hailo8.hef      # Hazelnut defect segmentation (21.7 MB)
+│   ├── pill_hailo8.hef          # Pill defect segmentation (21.0 MB)
+│   ├── tile_hailo8.hef          # Tile defect segmentation (21.6 MB)
+│   ├── zipper_hailo8.hef        # Zipper defect segmentation (21.2 MB)
+│   ├── models.yaml              # Models registry & specifications
+│   └── metadata.yaml            # Base model metadata & segmentation classes
+├── dataset/                     # Validation dataset for accuracy/mAP evaluation
+│   ├── images/                  # Validation images (normal & defects)
 │   └── labels/                  # Ground-truth segmentation polygon labels
-├── sample_images/               # Quick sample images for immediate verification
-│   ├── defective_glue_strip.png
+├── sample_images/               # Categorized test images for each model
+│   ├── bottle/                  # Normal & defects (broken, contamination)
+│   ├── cable/                   # Normal & defects (bent wire, missing cable)
+│   ├── capsule/                 # Normal & defects (crack, faulty imprint)
+│   ├── carpet/                  # Normal & defects (cut, metal contamination)
+│   ├── grid/                    # Normal & defects (broken, bent, glue)
+│   ├── hazelnut/                # Normal & defects (crack, hole, print)
+│   ├── pill/                    # Normal & defects (color, crack, imprint)
+│   ├── tile/                    # Normal & defects (glue strip, oil, crack)
+│   ├── zipper/                  # Normal & defects (broken/squeezed teeth)
+│   ├── defective_glue_strip.png # Legacy root samples
 │   ├── defective_oil.png
 │   └── good_tile.png
 ├── results/                     # Output folder for annotated images & JSON reports
@@ -54,13 +72,24 @@ chmod +x setup_pi.sh run_inference.sh inference.py evaluate_hef.py run_eval.sh
 
 *(If this is your first time enabling the AI HAT+ PCIe bus, reboot once with `sudo reboot` and return to `~/pi_deployment`).*
 
-### Step 3: Run Defect Inspection or mAP Evaluation!
+### Step 3: Run Defect Inspection!
+
 ```bash
-# Run defect inspection on sample images:
+# List all 9 available models
+./run_inference.sh --list-models
+
+# Run defect inspection on default model (tile):
 ./run_inference.sh
 
-# Run comprehensive mAP & accuracy evaluation across all images:
-./run_eval.sh
+# Select any model by category name (auto-loads matching sample images):
+./run_inference.sh bottle
+./run_inference.sh cable
+./run_inference.sh carpet
+./run_inference.sh zipper
+
+# Or use standard --model / -m flags:
+./run_inference.sh --model capsule
+python3 inference.py --model grid
 ```
 
 ---
@@ -135,13 +164,18 @@ python3 inference.py --source /dev/video0 --show
 
 ---
 
-### 2. Inspect Custom Images
+### 2. Inspect Specific Models & Custom Images
 ```bash
-# Single image
-./run_inference.sh --source path/to/my_tile.jpg
+# Run defect inspection on a specific category model
+./run_inference.sh bottle
+./run_inference.sh --model cable
+./run_inference.sh --model carpet
 
-# Entire folder of images
-./run_inference.sh --source path/to/tile_batch/
+# Inspect single custom image with specific model:
+./run_inference.sh --model bottle --source path/to/my_bottle.jpg
+
+# Inspect entire custom folder of images:
+./run_inference.sh --model zipper --source path/to/zipper_batch/
 ```
 
 ---

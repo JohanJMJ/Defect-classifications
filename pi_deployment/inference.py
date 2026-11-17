@@ -360,13 +360,125 @@ def run_benchmark(engine, sample_path, iterations=100):
     print("=" * 60 + "\n")
 
 
+def get_available_models(models_dir):
+    """Scan models_dir and return dict mapping category/model aliases to Path."""
+    models = {}
+    if not models_dir.exists():
+        return models
+    for p in sorted(models_dir.glob("*.hef")):
+        stem = p.stem  # e.g. bottle_hailo8
+        category = stem.split("_")[0].lower()
+        models[category] = p
+        models[stem.lower()] = p
+        models[p.name.lower()] = p
+    return models
+
+
+def list_available_models(models_dir, sample_images_dir=None):
+    """Print a clean table of all installed .hef models and sample image status."""
+    if not models_dir.exists():
+        print(f"❌ Error: Models directory '{models_dir}' not found.")
+        return
+    hef_files = sorted(models_dir.glob("*.hef"))
+    if not hef_files:
+        print("❌ No .hef models found in models directory.")
+        return
+
+    print("=" * 72)
+    print(f"📦 Installed Hailo-8 HEF Models ({len(hef_files)} available)")
+    print("=" * 72)
+    print(f"{'Category':<14} {'Model Filename':<26} {'Size (MB)':<12} {'Sample Images':<16}")
+    print("-" * 72)
+    for p in hef_files:
+        cat = p.stem.split("_")[0]
+        size_mb = p.stat().st_size / (1024 * 1024)
+        has_samples = sample_images_dir and (sample_images_dir / cat).is_dir()
+        sample_status = f"sample_images/{cat}" if has_samples else "Root folder"
+        print(f"{cat:<14} {p.name:<26} {size_mb:<12.2f} {sample_status:<16}")
+    print("=" * 72)
+    print("Quick Run Examples:")
+    print("  python3 inference.py --model bottle")
+    print("  ./run_inference.sh --model cable")
+    print("  ./run_inference.sh zipper")
+    print("  ./run_inference.sh carpet --camera\n")
+
+
+def resolve_model_path(model_arg, models_dir):
+    """
+    Resolve model path from:
+      1. Direct path or file in cwd: 'models/bottle_hailo8.hef'
+      2. File directly in models_dir: 'bottle_hailo8.hef'
+      3. Category name: 'bottle' -> models/bottle_hailo8.hef
+      4. Stem: 'bottle_hailo8' -> models/bottle_hailo8.hef
+    """
+    if not model_arg:
+        # Default fallback
+        tile_path = models_dir / "tile_hailo8.hef"
+        if tile_path.exists():
+            return tile_path
+        hefs = sorted(models_dir.glob("*.hef"))
+        return hefs[0] if hefs else None
+
+    # 1. Direct path check
+    direct_p = Path(model_arg)
+    if direct_p.is_file():
+        return direct_p.resolve()
+
+    # 2. Check inside models_dir directly or via basename
+    base_name = direct_p.name
+    cand = models_dir / base_name
+    if cand.is_file():
+        return cand.resolve()
+
+    cand_hef = models_dir / f"{base_name}.hef"
+    if cand_hef.is_file():
+        return cand_hef.resolve()
+
+    cand_h8 = models_dir / f"{base_name}_hailo8.hef"
+    if cand_h8.is_file():
+        return cand_h8.resolve()
+
+    cand_h8l = models_dir / f"{base_name}_hailo8l.hef"
+    if cand_h8l.is_file():
+        return cand_h8l.resolve()
+
+    # 3. Lookup in available models alias dict
+    avail = get_available_models(models_dir)
+    clean_arg = base_name.replace(".hef", "").strip().lower()
+    if clean_arg in avail:
+        return avail[clean_arg].resolve()
+
+    return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Native HailoRT YOLO segmentation inference (No PyTorch, No Ultralytics)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("-m", "--model", type=str, default="models/tile_hailo8.hef", help="Path to .hef model")
-    parser.add_argument("-s", "--source", type=str, default="sample_images", help="Image, directory, or camera index")
+    parser.add_argument(
+        "-m", "--model",
+        type=str,
+        default=None,
+        help="Model name, category (e.g. 'bottle', 'tile', 'cable'), or path to .hef model"
+    )
+    parser.add_argument(
+        "-c", "--category",
+        type=str,
+        default=None,
+        help="Alias for --model (e.g. bottle, cable, capsule, carpet, grid, hazelnut, pill, tile, zipper)"
+    )
+    parser.add_argument(
+        "-l", "--list-models",
+        action="store_true",
+        help="List all installed .hef models and their sample images, then exit"
+    )
+    parser.add_argument(
+        "-s", "--source",
+        type=str,
+        default=None,
+        help="Image file, directory, or camera index (default: sample_images/<category>)"
+    )
     parser.add_argument("-o", "--output-dir", type=str, default="results", help="Directory for output files")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.50, help="NMS IoU threshold")
@@ -379,10 +491,37 @@ def parse_args():
 def main():
     args = parse_args()
 
-    model_path = Path(args.model).resolve()
-    if not model_path.exists():
-        print(f"❌ Error: Model file not found at {model_path}")
+    script_dir = Path(__file__).resolve().parent
+    models_dir = script_dir / "models"
+    sample_images_dir = script_dir / "sample_images"
+
+    # Handle --list-models flag
+    if args.list_models:
+        list_available_models(models_dir, sample_images_dir)
+        return
+
+    # Select model
+    selected_model_arg = args.category or args.model or "tile"
+    model_path = resolve_model_path(selected_model_arg, models_dir)
+
+    if model_path is None or not model_path.exists():
+        print(f"❌ Error: Model '{selected_model_arg}' not found.")
+        list_available_models(models_dir, sample_images_dir)
         sys.exit(1)
+
+    category = model_path.stem.split("_")[0].lower()
+
+    # Determine default source if not provided
+    if args.source is None:
+        cat_sample_dir = sample_images_dir / category
+        if cat_sample_dir.is_dir() and any(cat_sample_dir.iterdir()):
+            source_path = cat_sample_dir
+        elif sample_images_dir.is_dir():
+            source_path = sample_images_dir
+        else:
+            source_path = Path("sample_images")
+    else:
+        source_path = Path(args.source)
 
     out_dir = Path(args.output_dir).resolve()
     if not args.no_save:
@@ -390,8 +529,10 @@ def main():
 
     print("=" * 60)
     print("🏭 Hailo-8 Native Inspection Engine (Lightweight Pure HailoRT)")
+    print(f"   Category    : {category.upper()}")
     print(f"   Model       : {model_path.name}")
-    print(f"   Source      : {args.source}")
+    print(f"   Model Path  : {model_path}")
+    print(f"   Source      : {source_path}")
     print(f"   Dependencies: hailo_platform, numpy, cv2 (NO Ultralytics / NO PyTorch)")
     print("=" * 60)
 
@@ -404,8 +545,13 @@ def main():
 
     # Benchmark mode
     if args.benchmark:
-        src = Path(args.source)
-        sample_img = src if src.is_file() else next((f for f in src.glob("*.*") if f.suffix.lower() in {".png", ".jpg", ".jpeg"}), None)
+        src = source_path
+        if src.is_file():
+            sample_img = src
+        elif src.is_dir():
+            sample_img = next((f for f in src.glob("*.*") if f.suffix.lower() in {".png", ".jpg", ".jpeg"}), None)
+        else:
+            sample_img = None
         if sample_img:
             run_benchmark(engine, sample_img)
         else:
@@ -413,15 +559,16 @@ def main():
         return
 
     # Camera mode
-    is_camera = args.source.isdigit() or args.source.startswith("/dev/video")
+    source_str = str(args.source) if args.source is not None else ""
+    is_camera = source_str.isdigit() or source_str.startswith("/dev/video")
     if is_camera:
-        cam_idx = int(args.source) if args.source.isdigit() else args.source
+        cam_idx = int(source_str) if source_str.isdigit() else source_str
         cap = cv2.VideoCapture(cam_idx)
         if not cap.isOpened():
-            print(f"❌ Error: Cannot open camera at {args.source}")
+            print(f"❌ Error: Cannot open camera at {source_str}")
             sys.exit(1)
 
-        print(f"📷 Streaming live camera from {args.source} (Press 'q' in window to exit)...")
+        print(f"📷 Streaming live camera from {source_str} (Press 'q' in window to exit)...")
         prev_time = time.time()
 
         while True:
@@ -453,15 +600,22 @@ def main():
         return
 
     # Image / Directory mode
-    src_path = Path(args.source).resolve()
+    src_path = source_path.resolve()
     if src_path.is_file():
         image_files = [src_path]
     elif src_path.is_dir():
-        image_files = sorted(
-            [f for f in src_path.iterdir() if f.suffix.lower() in {".png", ".jpg", ".jpeg"}]
-        )
+        # If source is sample_images and category subfolder exists, use that subfolder
+        cat_sub = src_path / category
+        if src_path == sample_images_dir.resolve() and cat_sub.is_dir() and any(cat_sub.iterdir()):
+            image_files = sorted(
+                [f for f in cat_sub.iterdir() if f.is_file() and f.suffix.lower() in {".png", ".jpg", ".jpeg"}]
+            )
+        else:
+            image_files = sorted(
+                [f for f in src_path.iterdir() if f.is_file() and f.suffix.lower() in {".png", ".jpg", ".jpeg"}]
+            )
     else:
-        print(f"❌ Error: Source '{args.source}' does not exist.")
+        print(f"❌ Error: Source '{source_path}' does not exist.")
         sys.exit(1)
 
     print(f"📂 Processing {len(image_files)} image(s)...")

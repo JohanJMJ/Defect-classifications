@@ -1,0 +1,45 @@
+# Hailo-8 (26 TOPS) HEF Models Registry for Raspberry Pi AI HAT+
+hardware_architecture: hailo8
+chip: Hailo-8 (26 TOPS)
+task: segmentation
+image_size: [640, 640]
+classes:
+  0: anomaly
+
+models:
+  bottle:
+    filename: bottle_hailo8.hef
+    category: bottle
+    description: Bottle defect segmentation (broken large, broken small, contamination)
+  cable:
+    filename: cable_hailo8.hef
+    category: cable
+    description: Cable defect segmentation (bent wire, cable swap, missing cable, cut insulation)
+  capsule:
+    filename: capsule_hailo8.hef
+    category: capsule
+    description: Capsule defect segmentation (crack, faulty imprint, poke, scratch, squeeze)
+  carpet:
+    filename: carpet_hailo8.hef
+    category: carpet
+    description: Carpet defect segmentation (color, cut, hole, metal contamination, thread)
+  grid:
+    filename: grid_hailo8.hef
+    category: grid
+    description: Grid defect segmentation (bent, broken, glue, thread)
+  hazelnut:
+    filename: hazelnut_hailo8.hef
+    category: hazelnut
+    description: Hazelnut defect segmentation (crack, cut, hole, print)
+  pill:
+    filename: pill_hailo8.hef
+    category: pill
+    description: Pill defect segmentation (color, crack, faulty imprint, scratch, contamination)
+  tile:
+    filename: tile_hailo8.hef
+    category: tile
+    description: Tile defect segmentation (glue strip, oil, crack, gray stroke, rough)
+  zipper:
+    filename: zipper_hailo8.hef
+    category: zipper
+    description: Zipper defect segmentation (broken teeth, rough, squeezed teeth, split teeth)

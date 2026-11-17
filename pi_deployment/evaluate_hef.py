@@ -21,8 +21,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Import HailoRT engine from inference.py
-from inference import HailoYOLOSegmentor, letterbox, CLASS_NAMES
+# Import HailoRT engine and model utilities from inference.py
+from inference import HailoYOLOSegmentor, letterbox, CLASS_NAMES, resolve_model_path, list_available_models
 
 
 def parse_yolo_labels(label_path, img_w, img_h):
@@ -177,31 +177,61 @@ def main():
         description="Check mAP of quantized YOLO HEF model on Raspberry Pi AI HAT+",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("-m", "--model", type=str, default="models/tile_hailo8.hef", help="Path to compiled .hef file")
+    parser.add_argument(
+        "-m", "--model",
+        type=str,
+        default=None,
+        help="Path, name, or category of compiled .hef file (e.g. 'bottle', 'tile', 'cable')"
+    )
+    parser.add_argument(
+        "-c", "--category",
+        type=str,
+        default=None,
+        help="Alias for --model (specify defect category)"
+    )
+    parser.add_argument(
+        "-l", "--list-models",
+        action="store_true",
+        help="List all installed .hef models and exit"
+    )
     parser.add_argument("-i", "--images", type=str, default="dataset/images", help="Path to validation images directory")
-    parser.add_argument("-l", "--labels", type=str, default="dataset/labels", help="Path to validation labels directory")
+    parser.add_argument("-l_dir", "--labels", type=str, default="dataset/labels", help="Path to validation labels directory")
     parser.add_argument("-o", "--output", type=str, default="results/evaluation_report.json", help="Path for JSON results")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.50, help="NMS IoU threshold")
     args = parser.parse_args()
 
-    model_path = Path(args.model).resolve()
+    script_dir = Path(__file__).resolve().parent
+    models_dir = script_dir / "models"
+    sample_images_dir = script_dir / "sample_images"
+
+    if args.list_models:
+        list_available_models(models_dir, sample_images_dir)
+        return
+
+    selected_model_arg = args.category or args.model or "tile"
+    model_path = resolve_model_path(selected_model_arg, models_dir)
+
+    if model_path is None or not model_path.exists():
+        print(f"❌ Error: Model '{selected_model_arg}' could not be resolved.")
+        list_available_models(models_dir, sample_images_dir)
+        sys.exit(1)
+
     images_dir = Path(args.images).resolve()
     labels_dir = Path(args.labels).resolve()
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not model_path.exists():
-        print(f"❌ Error: Model file not found at {model_path}")
-        sys.exit(1)
-
     if not images_dir.exists():
         print(f"❌ Error: Images directory not found at {images_dir}")
         sys.exit(1)
 
+    category = model_path.stem.split("_")[0].upper()
     print("=" * 70)
     print("📊 Hailo-8 Quantized Model mAP & Accuracy Evaluation")
+    print(f"   Category    : {category}")
     print(f"   Model       : {model_path.name}")
+    print(f"   Model Path  : {model_path}")
     print(f"   Images Dir  : {images_dir}")
     print(f"   Labels Dir  : {labels_dir}")
     print(f"   Confidence  : {args.conf}")
