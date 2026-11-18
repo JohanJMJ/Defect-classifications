@@ -7,10 +7,71 @@ Supports ExecuTorch (ARM64 CPU), llama-server / Ollama HTTP, and PC Simulation M
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import urllib.request
 import urllib.error
+
+
+def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
+    """
+    Mirrors a model or tokenizer file to Linux /dev/shm (POSIX RAM disk).
+    Returns (effective_path, is_in_ram).
+    If /dev/shm is unavailable, not writable, or has insufficient free memory, returns (src_path, False).
+    """
+    if not src_path:
+        return src_path, False
+    src_path = Path(src_path)
+    if not src_path.is_file():
+        return src_path, False
+
+    shm_root = Path("/dev/shm")
+    if not shm_root.is_dir() or not os.access(str(shm_root), os.W_OK):
+        return src_path, False
+
+    try:
+        dest_dir = shm_root / subfolder
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / src_path.name
+
+        src_size = src_path.stat().st_size
+
+        # Check if already cached in RAM with matching size
+        if dest_path.is_file() and dest_path.stat().st_size == src_size:
+            print(f"[RAM Disk] Model file already warm in RAM: {dest_path} ({src_size / (1024*1024):.1f} MB)")
+            return dest_path, True
+
+        # Check available RAM space (require file size + 100MB margin)
+        usage = shutil.disk_usage(str(shm_root))
+        if usage.free < (src_size + 100 * 1024 * 1024):
+            print(
+                f"[RAM Disk] Insufficient free space in /dev/shm ({usage.free / (1024*1024):.1f} MB free, "
+                f"need {src_size / (1024*1024):.1f} MB). Keeping on disk."
+            )
+            return src_path, False
+
+        print(f"[RAM Disk] ⚡ Loading {src_path.name} ({src_size / (1024*1024):.1f} MB) into RAM disk (/dev/shm)...")
+        t0 = time.perf_counter()
+        shutil.copy2(str(src_path), str(dest_path))
+        dt = (time.perf_counter() - t0) * 1000.0
+        print(f"[RAM Disk] ✅ Successfully staged in RAM in {dt:.1f}ms! Direct DDR4/DDR5 execution enabled.")
+        return dest_path, True
+
+    except Exception as e:
+        print(f"[RAM Disk] Staging to /dev/shm skipped: {e}")
+        return src_path, False
+
+
+def check_persistent_server(url="http://127.0.0.1:8080"):
+    """Checks if a persistent llama-server is listening for requests."""
+    try:
+        health_url = url.rstrip("/") + "/health"
+        req = urllib.request.Request(health_url, headers={"User-Agent": "QC-Advisory-Probe"})
+        with urllib.request.urlopen(req, timeout=0.4) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
 
 
 def auto_discover_llama():
@@ -158,7 +219,7 @@ class LlamaAdvisoryEngine:
         model_path=None,
         tokenizer_path=None,
         server_url="http://127.0.0.1:8080/completion",
-        max_tokens=125,
+        max_tokens=65,
         temperature=0.0,
     ):
         disc_runner, disc_model, disc_tok = auto_discover_llama()
@@ -172,7 +233,13 @@ class LlamaAdvisoryEngine:
 
         # Determine backend
         if backend == "auto":
-            if (
+            # 1. Check if persistent in-memory server is listening (0s cold load, ~2s generation)
+            server_host = self.server_url.rsplit("/", 1)[0]
+            if check_persistent_server(server_host):
+                self.backend = "server"
+                print(f"[LlamaAdvisoryEngine] Connected to Persistent In-Memory Server at {self.server_url}")
+            # 2. Check if ExecuTorch binary & model are available
+            elif (
                 self.runner_path
                 and self.runner_path.is_file()
                 and os.access(self.runner_path, os.X_OK)
@@ -188,7 +255,24 @@ class LlamaAdvisoryEngine:
         else:
             self.backend = backend
 
-        print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend}")
+        # Fast-Path RAM Disk Staging: Mirror ExecuTorch model to Linux /dev/shm for zero-disk cold load
+        self.is_ram_disk = False
+        self.original_model_path = self.model_path
+        if self.backend == "executorch" and self.model_path and self.model_path.is_file():
+            ram_model, model_in_ram = mirror_to_ram_disk(self.model_path)
+            self.model_path = ram_model
+            self.is_ram_disk = model_in_ram
+
+            if self.tokenizer_path and self.tokenizer_path.is_file():
+                ram_tok, _ = mirror_to_ram_disk(self.tokenizer_path)
+                self.tokenizer_path = ram_tok
+
+            if self.is_ram_disk:
+                print(f"[LlamaAdvisoryEngine] 🚀 ExecuTorch active from RAM disk (/dev/shm): {self.model_path.name}")
+            else:
+                print(f"[LlamaAdvisoryEngine] ExecuTorch active from Disk: {self.model_path}")
+
+        print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend} (RAM Resident: {self.is_ram_disk})")
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         h, w = image_shape[:2]
@@ -323,7 +407,8 @@ class LlamaAdvisoryEngine:
             existing_ld = env.get("LD_LIBRARY_PATH", "")
             env["LD_LIBRARY_PATH"] = f"{runner_dir}:{existing_ld}".rstrip(":")
 
-            print(f"[ExecuTorch] Executing: {self.runner_path.name} in {runner_dir}...")
+            loc_desc = "RAM (/dev/shm)" if getattr(self, "is_ram_disk", False) else "Disk (MicroSD)"
+            print(f"[ExecuTorch] Executing from {loc_desc}: {self.model_path.name}...")
             res = subprocess.run(
                 cmd,
                 stdout=subprocess.PIPE,

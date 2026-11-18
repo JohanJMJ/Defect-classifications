@@ -66,10 +66,35 @@ except ImportError:
 # ---------------------------------------------------------------------
 CLASS_NAMES = {0: "anomaly"}
 
-DEFAULT_LLAMA_DIR = Path.home() / "Desktop" / "executorch-3b"
-DEFAULT_LLAMA_RUNNER = DEFAULT_LLAMA_DIR / "llama_main"
-DEFAULT_LLAMA_MODEL = DEFAULT_LLAMA_DIR / "llama-3b.pte"
-DEFAULT_LLAMA_TOKENIZER = DEFAULT_LLAMA_DIR / "tokenizer.json"
+def find_default_llama_paths():
+    candidates = [
+        Path.home() / "executorch-deployment",
+        Path("/home/raspberrypi5/executorch-deployment"),
+        Path.home() / "Desktop" / "executorch-deployment",
+        Path.home() / "Desktop" / "executorch-1b",
+        Path.home() / "executorch-1b",
+        Path.home() / "Desktop" / "executorch",
+        Path.home() / "executorch",
+        Path.home() / "Desktop" / "executorch-3b",
+        Path.home() / "executorch-3b",
+    ]
+    for d in candidates:
+        try:
+            if d.is_dir():
+                runner = d / "llama_main"
+                ptes = list(d.glob("*.pte"))
+                toks = list(d.glob("*tokenizer*"))
+                if runner.is_file():
+                    chosen_pte = [p for p in ptes if "1b" in p.name.lower()]
+                    model = chosen_pte[0] if chosen_pte else (ptes[0] if ptes else d / "llama-1b.pte")
+                    tok = toks[0] if toks else d / "tokenizer.json"
+                    return runner, model, tok
+        except Exception:
+            continue
+    fallback = Path.home() / "executorch-deployment"
+    return fallback / "llama_main", fallback / "Llama-3.2-1B-Instruct-SpinQuant_INT4_EO8.pte", fallback / "tokenizer.model"
+
+DEFAULT_LLAMA_RUNNER, DEFAULT_LLAMA_MODEL, DEFAULT_LLAMA_TOKENIZER = find_default_llama_paths()
 
 # Industrial Rule-Engine Thresholds
 HIGH_SEVERITY_MASK_PCT = 10.0   # Defect covering >10% of image is critical
@@ -433,6 +458,22 @@ class LlamaAdvisoryEngine:
                 )
             if not os.access(self.runner_path, os.X_OK):
                 raise PermissionError(f"Runner is not executable: {self.runner_path}")
+
+            # Fast-Path RAM Disk Staging (/dev/shm) for zero MicroSD cold load
+            shm_root = Path("/dev/shm")
+            if shm_root.is_dir() and os.access(str(shm_root), os.W_OK):
+                try:
+                    import shutil
+                    shm_dir = shm_root / "executorch"
+                    shm_dir.mkdir(parents=True, exist_ok=True)
+                    shm_model = shm_dir / self.model_path.name
+                    if not shm_model.is_file() or shm_model.stat().st_size != self.model_path.stat().st_size:
+                        print(f"[RAM Staging] ⚡ Mirroring {self.model_path.name} to /dev/shm for zero cold load...")
+                        shutil.copy2(str(self.model_path), str(shm_model))
+                    self.model_path = shm_model
+                    print(f"[RAM Staging] ✅ ExecuTorch model active from RAM: {self.model_path}")
+                except Exception as e:
+                    print(f"[RAM Staging] /dev/shm staging skipped: {e}")
 
         elif self.backend == "server":
             # Test connectivity to local server
