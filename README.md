@@ -66,7 +66,6 @@ Defect-classifications/
 ├── update_code.zip               # Lightweight deployment package for fast Raspberry Pi sync
 ├── README.md                     # Comprehensive documentation & deployment guide
 ├── full_training/                # Production models for 15 categories (*_production_best.pt, 100 epochs)
-├── rapid_training/               # Baseline models for 15 categories (*_best.pt, 40 epochs)
 ├── HAT+ quatization/             # Hailo AI HAT+ quantization and HEF compilation tools
 │   ├── compile_hef.py            # Python compiler script (YOLO .pt -> Hailo .hef)
 │   ├── run_compiler.sh           # Dockerized runner bridging host to Ubuntu 22.04 runtime
