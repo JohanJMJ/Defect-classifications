@@ -1,0 +1,16 @@
+[Unit]
+Description=On-Device AI Industrial Quality Control Assistant Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/pi_deployment
+ExecStart=/home/pi/pi_deployment/venv/bin/python3 -m dashboard.app
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/pi/pi_deployment
+
+[Install]
+WantedBy=multi-user.target

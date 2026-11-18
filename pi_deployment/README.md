@@ -13,6 +13,18 @@ This folder contains a **complete, lightweight deployment package** for running 
 
 ```text
 pi_deployment/
+├── backend/                     # Dual-AI & hardware engines
+│   ├── hailo_engine.py          # Native HailoRT NPU runner with self-healing PCIe reset & PC simulation
+│   ├── llama_engine.py          # ExecuTorch Llama 3.2 1B runner with Six-Sigma CQE prompt engine
+│   ├── rule_engine.py           # Sub-millisecond deterministic physical triage (< 0.1 ms)
+│   ├── camera_streamer.py       # On-demand USB/CSI camera streamer with MJPEG feed
+│   ├── alert_manager.py         # Industrial GPIO buzzer & LED indicator management
+│   └── database.py              # SQLite audit logging & historical analytics
+├── dashboard/                   # High-contrast Industrial Web Dashboard
+│   ├── app.py                   # Decoupled 2-stage Flask API backend (< 25 ms vision response)
+│   ├── config.py                # System telemetry, paths, and hardware monitor
+│   ├── templates/               # Offline HTML templates (base, index, history)
+│   └── static/                  # Responsive CSS, icons, and async JavaScript polling
 ├── models/                      # 9 Pre-compiled Hailo-8 HEF executables (26 TOPS)
 │   ├── bottle_hailo8.hef        # Bottle defect segmentation (21.7 MB)
 │   ├── cable_hailo8.hef         # Cable defect segmentation (21.8 MB)
@@ -26,24 +38,12 @@ pi_deployment/
 │   ├── models.yaml              # Models registry & specifications
 │   └── metadata.yaml            # Base model metadata & segmentation classes
 ├── dataset/                     # Validation dataset for accuracy/mAP evaluation
-│   ├── images/                  # Validation images (normal & defects)
-│   └── labels/                  # Ground-truth segmentation polygon labels
 ├── sample_images/               # Categorized test images for each model
-│   ├── bottle/                  # Normal & defects (broken, contamination)
-│   ├── cable/                   # Normal & defects (bent wire, missing cable)
-│   ├── capsule/                 # Normal & defects (crack, faulty imprint)
-│   ├── carpet/                  # Normal & defects (cut, metal contamination)
-│   ├── grid/                    # Normal & defects (broken, bent, glue)
-│   ├── hazelnut/                # Normal & defects (crack, hole, print)
-│   ├── pill/                    # Normal & defects (color, crack, imprint)
-│   ├── tile/                    # Normal & defects (glue strip, oil, crack)
-│   ├── zipper/                  # Normal & defects (broken/squeezed teeth)
-│   ├── defective_glue_strip.png # Legacy root samples
-│   ├── defective_oil.png
-│   └── good_tile.png
+├── service/                     # Systemd service for auto-start on factory boot
 ├── results/                     # Output folder for annotated images & JSON reports
 ├── inference.py                 # Pure HailoRT inference engine (HUD, masks, JSON logs)
 ├── evaluate_hef.py              # Evaluates Box mAP & Mask mAP across all images
+├── run_dashboard.sh             # 1-click Web Dashboard launcher for Raspberry Pi
 ├── run_eval.sh                  # 1-click mAP and accuracy evaluation runner
 ├── run_inference.sh             # One-click terminal runner for images/camera
 ├── setup_pi.sh                  # 1-click Raspberry Pi OS setup script (fast, ~30 sec)

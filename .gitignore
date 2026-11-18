@@ -19,6 +19,10 @@ pi_deployment/venv/
 pi_deployment/results/
 results/
 *.hef.log
+pi_deployment/dashboard/data/
+pi_deployment.zip
+update_code.zip
+*.zip
 
 # OS artifacts
 .DS_Store

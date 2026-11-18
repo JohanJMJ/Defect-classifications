@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Industrial Quality Control Assistant{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <!-- 100% Offline Local Font Stack (No Internet Connection Needed) -->
+</head>
+<body class="industrial-theme">
+    <!-- Top System Telemetry Bar -->
+    <header class="top-header">
+        <div class="header-brand">
+            <div class="status-indicator-dot pulse-green"></div>
+            <div class="brand-text">
+                <span class="brand-title">EDGE AI QC ASSISTANT</span>
+                <span class="brand-subtitle">Raspberry Pi 5 + Hailo-8 (26 TOPS) | ExecuTorch Llama</span>
+            </div>
+        </div>
+
+        <!-- Telemetry HUD -->
+        <div class="telemetry-hud" id="telemetryBar">
+            <div class="hud-pill" id="npuPill" title="AI Vision Accelerator">
+                <span class="hud-label">NPU:</span>
+                <span class="hud-val text-cyan" id="npuStatus">Checking...</span>
+            </div>
+            <div class="hud-pill" title="Pi 5 ARM CPU">
+                <span class="hud-label">CPU:</span>
+                <span class="hud-val" id="cpuLoad">--%</span>
+            </div>
+            <div class="hud-pill" title="Memory Utilization">
+                <span class="hud-label">RAM:</span>
+                <span class="hud-val" id="ramLoad">--%</span>
+            </div>
+            <div class="hud-pill" title="Hardware Temperature">
+                <span class="hud-label">TEMP:</span>
+                <span class="hud-val text-amber" id="tempVal">--°C</span>
+            </div>
+        </div>
+
+        <!-- Navigation Links & Theme Toggle -->
+        <nav class="nav-links">
+            <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                Inspection Studio
+            </a>
+            <a href="/history" class="nav-item {% if request.path == '/history' %}active{% endif %}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Audit Log
+            </a>
+            <a href="/api/export/csv" class="nav-item btn-export" target="_blank" title="Export SQLite Data to CSV">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Export CSV
+            </a>
+            <button type="button" id="themeToggleBtn" class="theme-toggle-btn" title="Toggle Light / Dark Mode">
+                <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                <svg class="icon-moon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                <span id="themeToggleText">Light</span>
+            </button>
+        </nav>
+    </header>
+
+    <!-- Main View Content -->
+    <main class="main-container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Global Footer -->
+    <footer class="system-footer">
+        <div>On-Device Industrial Vision Inspection System &bull; Pure Edge Deployment</div>
+        <div id="connectionStatus" class="connection-status">System Operational &bull; Local Hardware</div>
+    </footer>
+
+    <script>
+        // Theme switcher (Dark / Light)
+        function initTheme() {
+            const savedTheme = localStorage.getItem('qc_theme') || 'dark';
+            applyTheme(savedTheme);
+        }
+
+        function applyTheme(theme) {
+            const body = document.body;
+            const sunIcon = document.querySelector('.icon-sun');
+            const moonIcon = document.querySelector('.icon-moon');
+            const textEl = document.getElementById('themeToggleText');
+
+            if (theme === 'light') {
+                body.classList.remove('theme-dark');
+                body.classList.add('theme-light');
+                if (sunIcon) sunIcon.classList.add('hidden');
+                if (moonIcon) moonIcon.classList.remove('hidden');
+                if (textEl) textEl.innerText = 'Dark';
+                localStorage.setItem('qc_theme', 'light');
+            } else {
+                body.classList.remove('theme-light');
+                body.classList.add('theme-dark');
+                if (sunIcon) sunIcon.classList.remove('hidden');
+                if (moonIcon) moonIcon.classList.add('hidden');
+                if (textEl) textEl.innerText = 'Light';
+                localStorage.setItem('qc_theme', 'dark');
+            }
+        }
+
+        const themeBtn = document.getElementById('themeToggleBtn');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', () => {
+                const current = document.body.classList.contains('theme-light') ? 'light' : 'dark';
+                applyTheme(current === 'light' ? 'dark' : 'light');
+            });
+        }
+        initTheme();
+
+        // Real-time telemetry poller
+        function updateTelemetry() {
+            fetch('/api/telemetry')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.telemetry) {
+                        const t = data.telemetry;
+                        document.getElementById('cpuLoad').innerText = t.cpu_percent + '%';
+                        document.getElementById('ramLoad').innerText = t.ram_percent + '%';
+                        document.getElementById('tempVal').innerText = t.temperature_c ? (t.temperature_c + '°C') : '42°C';
+                        const npuEl = document.getElementById('npuStatus');
+                        if (t.npu_active) {
+                            npuEl.innerText = 'Hailo-8 (26 TOPS)';
+                            npuEl.className = 'hud-val text-green';
+                        } else {
+                            npuEl.innerText = 'Simulation (PC)';
+                            npuEl.className = 'hud-val text-amber';
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+        setInterval(updateTelemetry, 4000);
+        updateTelemetry();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

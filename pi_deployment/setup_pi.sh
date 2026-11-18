@@ -41,16 +41,29 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
 fi
 
-# 4. Create lightweight virtual environment (inheriting system HailoRT & OpenCV)
+# 4. Check /boot/firmware/cmdline.txt to prevent PCIe ASPM idle timeouts
+CMDLINE_FILE="/boot/firmware/cmdline.txt"
+if [ ! -f "$CMDLINE_FILE" ]; then
+    CMDLINE_FILE="/boot/cmdline.txt"
+fi
+
+if [ -f "$CMDLINE_FILE" ]; then
+    if ! grep -q "pcie_aspm=off" "$CMDLINE_FILE"; then
+        echo "⚙️ Adding pcie_aspm=off to $CMDLINE_FILE to prevent PCIe low-power sleep timeouts..."
+        sudo sed -i.bak 's/$/ pcie_aspm=off/' "$CMDLINE_FILE"
+    fi
+fi
+
+# 5. Create lightweight virtual environment (inheriting system HailoRT & OpenCV)
 echo "🐍 Creating lightweight Python virtual environment..."
 python3 -m venv --system-site-packages "${SCRIPT_DIR}/venv"
 
-# 5. Ensure numpy and opencv are ready (Pure lightweight stack, NO PyTorch)
+# 6. Ensure numpy, opencv, and web dashboard dependencies are ready
 echo "📦 Verifying lightweight Python dependencies..."
 "${SCRIPT_DIR}/venv/bin/pip" install --upgrade pip
-"${SCRIPT_DIR}/venv/bin/pip" install numpy opencv-python
+"${SCRIPT_DIR}/venv/bin/pip" install numpy opencv-python flask flask-cors pillow psutil pyyaml
 
-# 6. Test Hailo hardware recognition
+# 7. Test Hailo hardware recognition
 echo "🔍 Testing Hailo-8 hardware connection..."
 if command -v hailortcli &> /dev/null; then
     if hailortcli fw-control identify; then
