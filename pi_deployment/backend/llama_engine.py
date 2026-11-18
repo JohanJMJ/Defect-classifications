@@ -35,10 +35,22 @@ def auto_discover_llama():
                 tok_files = list(d.glob("*tokenizer*"))
 
                 if runner.is_file() and pte_files and tok_files:
-                    # Prioritize 1B model if present
+                    # Prioritize 0.5B (Qwen) or 1B (Llama) models if present
+                    models_05b = [p for p in pte_files if "0_5b" in p.name.lower() or "0.5b" in p.name.lower() or "qwen" in p.name.lower()]
                     models_1b = [p for p in pte_files if "1b" in p.name.lower()]
-                    chosen_model = models_1b[0] if models_1b else pte_files[0]
-                    return runner, chosen_model, tok_files[0]
+                    chosen_model = models_05b[0] if models_05b else (models_1b[0] if models_1b else pte_files[0])
+
+                    # Prefer tokenizer.json for Qwen or tokenizer.model for Llama
+                    json_toks = [t for t in tok_files if t.name.endswith(".json")]
+                    model_toks = [t for t in tok_files if t.name.endswith(".model")]
+                    if "qwen" in chosen_model.name.lower() and json_toks:
+                        chosen_tok = json_toks[0]
+                    elif model_toks:
+                        chosen_tok = model_toks[0]
+                    else:
+                        chosen_tok = tok_files[0]
+
+                    return runner, chosen_model, chosen_tok
                 elif runner.is_file():
                     model = pte_files[0] if pte_files else (d / "llama-1b.pte")
                     tok = tok_files[0] if tok_files else (d / "tokenizer.json")
@@ -167,25 +179,50 @@ class LlamaAdvisoryEngine:
             )
         det_str = "; ".join(det_summary) if det_summary else "No anomalies"
 
-        prompt = (
-            f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
-            f"Respond strictly in 3 concise engineering bullet points:\n"
-            f"- Severity: {severity}\n"
-            f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
-            f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
-            f"\n"
-            f"Example:\n"
-            f"- Severity: CRITICAL\n"
-            f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
-            f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
-            f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
-            f"Component: {category.upper()} ({kb['material']}).\n"
-            f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
-            f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
-            f"Known factory failure modes: {kb['failure_modes']}.\n"
-            f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
-        )
+        is_qwen = self.model_path and "qwen" in str(self.model_path).lower()
+
+        if is_qwen:
+            prompt = (
+                f"<|im_start|>system\n"
+                f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
+                f"Respond strictly in 3 concise engineering bullet points:\n"
+                f"- Severity: {severity}\n"
+                f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
+                f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
+                f"\n"
+                f"Example:\n"
+                f"- Severity: CRITICAL\n"
+                f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
+                f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
+                f"<|im_end|>\n"
+                f"<|im_start|>user\n"
+                f"Component: {category.upper()} ({kb['material']}).\n"
+                f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
+                f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
+                f"Known factory failure modes: {kb['failure_modes']}.\n"
+                f"<|im_end|>\n"
+                f"<|im_start|>assistant\n"
+            )
+        else:
+            prompt = (
+                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
+                f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
+                f"Respond strictly in 3 concise engineering bullet points:\n"
+                f"- Severity: {severity}\n"
+                f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
+                f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
+                f"\n"
+                f"Example:\n"
+                f"- Severity: CRITICAL\n"
+                f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
+                f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
+                f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
+                f"Component: {category.upper()} ({kb['material']}).\n"
+                f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
+                f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
+                f"Known factory failure modes: {kb['failure_modes']}.\n"
+                f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+            )
         return prompt
 
     def generate_advisory(self, category, detections, image_shape, rule_eval):
@@ -317,13 +354,16 @@ class LlamaAdvisoryEngine:
                 except Exception:
                     pass
 
-            marker = "<|start_header_id|>assistant<|end_header_id|>"
-            if marker in out:
-                out = out.rsplit(marker, 1)[-1]
+            marker_llama = "<|start_header_id|>assistant<|end_header_id|>"
+            marker_qwen = "<|im_start|>assistant"
+            if marker_llama in out:
+                out = out.rsplit(marker_llama, 1)[-1]
+            elif marker_qwen in out:
+                out = out.rsplit(marker_qwen, 1)[-1]
             elif prompt in out:
                 out = out.replace(prompt, "")
 
-            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
+            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").replace("<|im_end|>", "").strip()
             return out if out else (
                 f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
                 f"• Assessment: ExecuTorch generated empty output.\n"
