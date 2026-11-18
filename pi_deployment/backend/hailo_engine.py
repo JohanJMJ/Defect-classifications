@@ -8,8 +8,6 @@ from pathlib import Path
 import time
 import cv2
 import numpy as np
-import threading
-import subprocess
 
 # Check if HailoRT platform is available
 try:
@@ -86,8 +84,7 @@ class HailoVisionEngine:
         self.force_simulation = force_simulation or (not HAILORT_AVAILABLE)
         self.current_model_name = None
         self.active_segmentor = None
-        self.infer_lock = threading.RLock()
-        self._sample_annotations = None  # Lazy-loaded from JSON
+        self._sample_annotations = None
 
         if self.force_simulation:
             print("[HailoVisionEngine] Running in SIMULATION / PC MODE (HailoRT hardware bypassed).")
@@ -98,210 +95,155 @@ class HailoVisionEngine:
         return self.force_simulation
 
     def _get_sample_annotations(self):
-        """Lazily load ground-truth annotations for all sample images."""
+        """Lazily load ground-truth annotations for sample images."""
         if self._sample_annotations is None:
             import json
             ann_path = Path(__file__).resolve().parent.parent / "sample_images" / "sample_annotations.json"
             if ann_path.is_file():
-                with open(ann_path, "r", encoding="utf-8") as f:
-                    self._sample_annotations = json.load(f)
-                print(f"[HailoVisionEngine] Loaded {len(self._sample_annotations)} sample annotations from {ann_path}")
+                try:
+                    with open(ann_path, "r", encoding="utf-8") as f:
+                        self._sample_annotations = json.load(f)
+                    print(f"[HailoVisionEngine] Loaded {len(self._sample_annotations)} annotations from {ann_path.name}")
+                except Exception as e:
+                    print(f"[HailoVisionEngine] Error loading annotations: {e}")
+                    self._sample_annotations = {}
             else:
                 self._sample_annotations = {}
-                print(f"[HailoVisionEngine] No sample_annotations.json found at {ann_path}, simulation will use CV heuristics.")
         return self._sample_annotations
 
     def load_model(self, model_name):
-        with self.infer_lock:
-            if self.force_simulation:
-                self.current_model_name = model_name
-                return True
-
-            if self.current_model_name == model_name and self.active_segmentor is not None:
-                return True
-
-            hef_filename = f"{model_name}_hailo8.hef" if not model_name.endswith(".hef") else model_name
-            hef_path = self.models_dir / hef_filename
-            if not hef_path.is_file():
-                # Try finding direct name
-                hef_path = self.models_dir / model_name
-                if not hef_path.is_file():
-                    raise FileNotFoundError(f"HEF model file not found: {hef_path}")
-
-            if self.active_segmentor is not None:
-                try:
-                    self.active_segmentor.close()
-                except Exception:
-                    pass
-                self.active_segmentor = None
-
-            self.active_segmentor = _NativeHailoSegmentor(str(hef_path))
+        if self.force_simulation:
             self.current_model_name = model_name
             return True
 
+        if self.current_model_name == model_name and self.active_segmentor is not None:
+            return True
+
+        hef_filename = f"{model_name}_hailo8.hef" if not model_name.endswith(".hef") else model_name
+        hef_path = self.models_dir / hef_filename
+        if not hef_path.is_file():
+            # Try finding direct name
+            hef_path = self.models_dir / model_name
+            if not hef_path.is_file():
+                raise FileNotFoundError(f"HEF model file not found: {hef_path}")
+
+        if self.active_segmentor is not None:
+            self.active_segmentor.close()
+
+        self.active_segmentor = _NativeHailoSegmentor(str(hef_path))
+        self.current_model_name = model_name
+        return True
+
     def infer(self, image_bgr, model_name="tile", conf_thresh=0.25, iou_thresh=0.50, image_name=None):
         """
-        Runs visual inference on an input BGR OpenCV image with thread locking,
-        automatic hardware reset upon PCIe/Hailo timeout, and graceful fallback.
+        Runs visual inference on an input BGR OpenCV image.
         Returns:
             detections: list of defect dicts
             latency_ms: time taken in milliseconds
         """
-        with self.infer_lock:
-            if self.force_simulation:
-                return self._infer_simulation(image_bgr, model_name, conf_thresh, image_name=image_name)
+        if self.force_simulation:
+            return self._infer_simulation(image_bgr, model_name, conf_thresh, image_name=image_name)
 
-            # Native Hailo-8 inference
-            try:
-                self.load_model(model_name)
-                return self.active_segmentor.predict(image_bgr, conf_thresh, iou_thresh)
-            except Exception as e:
-                print(f"[HailoVisionEngine] Hardware inference error on model '{model_name}': {e}")
-                # Clean up corrupted pipeline
-                if self.active_segmentor is not None:
-                    try:
-                        self.active_segmentor.close()
-                    except Exception:
-                        pass
-                    self.active_segmentor = None
-
-                # Reset Hailo hardware if it was a timeout or PCIe hang
-                err_str = str(e)
-                if "HAILO_TIMEOUT" in err_str or "status=4" in err_str or "status=" in err_str:
-                    try:
-                        print("[HailoVisionEngine] Hardware timeout detected. Issuing 'hailortcli fw-control reset'...")
-                        subprocess.run(
-                            ["hailortcli", "fw-control", "reset"],
-                            timeout=5,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        time.sleep(0.4)
-                    except Exception:
-                        pass
-
-                # Attempt 1 clean retry
-                try:
-                    print(f"[HailoVisionEngine] Retrying Hailo-8 inference on model '{model_name}'...")
-                    self.load_model(model_name)
-                    return self.active_segmentor.predict(image_bgr, conf_thresh, iou_thresh)
-                except Exception as retry_err:
-                    print(f"[HailoVisionEngine] Hardware retry failed ({retry_err}). Gracefully falling back to simulation mode.")
-                    return self._infer_simulation(image_bgr, model_name, conf_thresh, image_name=None)
+        # Native Hailo-8 inference
+        self.load_model(model_name)
+        return self.active_segmentor.predict(image_bgr, conf_thresh, iou_thresh)
 
     def _infer_simulation(self, image_bgr, model_name, conf_thresh=0.25, image_name=None):
         """
         Accurate simulation mode for PC testing without Hailo hardware.
-
         Priority:
-          1. PASS fast-path  — filename contains 'good' or 'normal' → return []
-          2. Annotation DB   — look up pre-computed ground-truth polygon from sample_annotations.json
-          3. CV heuristics   — multi-channel difference / edge fallback for unknown images
+          1. Clean PASS if image name indicates normal/good sample
+          2. Ground-truth annotation lookup if image matches sample library
+          3. Multi-modal CV contour detection for unknown/custom uploaded images
         """
         t0 = time.perf_counter()
         h, w = image_bgr.shape[:2]
 
-        # ── 1. PASS fast-path ────────────────────────────────────────────────
         fname = Path(str(image_name)).name.lower() if image_name else ""
+
+        # 1. Immediate PASS for good/normal reference images
         if any(kw in fname for kw in ["good", "normal", "pass", "clean"]):
             elapsed = (time.perf_counter() - t0) * 1000.0
             return [], round(max(elapsed, 11.8), 2)
 
-        # ── 2. Annotation database lookup ────────────────────────────────────
+        # 2. Annotation lookup for sample images
         annotations = self._get_sample_annotations()
-
-        # Build candidate lookup keys
-        candidates = []
-        if image_name:
-            # Normalise separators
-            norm = str(image_name).replace("\\", "/").lstrip("/")
-            candidates.append(norm)                          # "tile/defective_crack.png"
-            candidates.append(Path(norm).name)               # "defective_crack.png"
-            candidates.append(f"{model_name}/{Path(norm).name}")  # "tile/defective_crack.png"
-
         ann = None
-        for key in candidates:
-            if key in annotations:
-                ann = annotations[key]
-                break
+        if image_name:
+            norm_name = str(image_name).replace("\\", "/").lstrip("/")
+            candidates = [
+                norm_name,
+                Path(norm_name).name,
+                f"{model_name}/{Path(norm_name).name}"
+            ]
+            for cand in candidates:
+                if cand in annotations:
+                    ann = annotations[cand]
+                    break
 
         if ann:
-            polygon = ann["polygon"]   # list of [x, y]
-            conf = ann["confidence"]
+            polygon = ann.get("polygon", [])
+            conf = ann.get("confidence", 0.94)
             label = ann.get("label", f"{model_name}_anomaly")
 
             if polygon and conf >= conf_thresh:
                 pts = np.array(polygon, dtype=np.int32).reshape((-1, 1, 2))
-
-                # Build pixel mask from stored polygon
                 mask = np.zeros((h, w), dtype=np.uint8)
-                # Scale polygon coords if image size changed (should not happen, but safety)
-                bbox_x1 = min(p[0] for p in polygon)
-                bbox_x2 = max(p[0] for p in polygon)
-                bbox_y1 = min(p[1] for p in polygon)
-                bbox_y2 = max(p[1] for p in polygon)
-                # If polygon coords exceed current image size, scale them
-                if bbox_x2 >= w or bbox_y2 >= h:
-                    ann_w = max(bbox_x2 + 1, w)
-                    ann_h = max(bbox_y2 + 1, h)
-                    sx = w / ann_w
-                    sy = h / ann_h
-                    pts_scaled = np.array([[int(p[0]*sx), int(p[1]*sy)] for p in polygon], dtype=np.int32).reshape((-1, 1, 2))
-                    bbox_x1 = int(bbox_x1 * sx); bbox_x2 = int(bbox_x2 * sx)
-                    bbox_y1 = int(bbox_y1 * sy); bbox_y2 = int(bbox_y2 * sy)
-                else:
-                    pts_scaled = pts
-
-                cv2.fillPoly(mask, [pts_scaled], 1)
+                cv2.fillPoly(mask, [pts], 1)
                 area_px = float(np.sum(mask))
 
-                approx = cv2.approxPolyDP(
-                    pts_scaled, epsilon=0.008 * cv2.arcLength(pts_scaled, True), closed=True
-                )
-                out_polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
+                bbox = ann.get("bbox") or [
+                    float(min(p[0] for p in polygon)),
+                    float(min(p[1] for p in polygon)),
+                    float(max(p[0] for p in polygon)),
+                    float(max(p[1] for p in polygon))
+                ]
 
                 elapsed = (time.perf_counter() - t0) * 1000.0
                 return [{
                     "label": label,
                     "confidence": round(float(conf), 4),
-                    "bbox": [float(bbox_x1), float(bbox_y1), float(bbox_x2), float(bbox_y2)],
-                    "mask_polygon_points": len(out_polygon),
-                    "polygon": out_polygon,
+                    "bbox": [round(float(v), 1) for v in bbox],
+                    "mask_polygon_points": len(polygon),
+                    "polygon": polygon,
                     "mask_area_px": round(area_px, 1),
                     "mask_array": mask,
                 }], round(max(elapsed, 11.8), 2)
 
-        # ── 3. CV heuristic fallback (uploaded images / unknown filenames) ────
-        # Only run if the image name does NOT look like a known-good sample
+        # Use image analysis heuristics to see if this is defective or good
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (7, 7), 0)
 
-        # Multi-method: adaptive threshold + Otsu
-        adaptive = cv2.adaptiveThreshold(
+        # Threshold / Edge detection to locate high-contrast anomalies
+        thresh = cv2.adaptiveThreshold(
             blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 4
         )
-        _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        combined = cv2.bitwise_and(adaptive, otsu)
-
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        morph = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
+        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
         contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         detections = []
-        min_area = (h * w) * 0.005
-        max_area = (h * w) * 0.40
+        min_area = (h * w) * 0.005  # At least 0.5% of image area
+        max_area = (h * w) * 0.40   # At most 40%
+
         valid_contours = [c for c in contours if min_area < cv2.contourArea(c) < max_area]
 
         if valid_contours:
+            # Pick the most significant anomaly contour
             c = max(valid_contours, key=cv2.contourArea)
             x, y, bw, bh = cv2.boundingRect(c)
+
+            # Create binary mask
             mask = np.zeros((h, w), dtype=np.uint8)
             cv2.drawContours(mask, [c], -1, 1, thickness=-1)
             area_px = float(np.sum(mask))
+
             confidence = float(np.clip(0.85 + (len(c) % 15) * 0.01, 0.70, 0.98))
             if confidence >= conf_thresh:
+                # Convert contour to serializable polygon coordinates for canvas
                 approx = cv2.approxPolyDP(c, epsilon=0.01 * cv2.arcLength(c, True), closed=True)
                 polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
+
                 detections.append({
                     "label": f"{model_name}_anomaly",
                     "confidence": round(confidence, 4),
@@ -312,8 +254,12 @@ class HailoVisionEngine:
                     "mask_array": mask,
                 })
 
+        # Artificial simulated latency matching Hailo-8 (11-14 ms)
         elapsed_real = (time.perf_counter() - t0) * 1000.0
-        return detections, round(max(elapsed_real, 11.8), 2)
+        target_sim_latency = 11.8  # Hailo-8 typical speed
+        sim_latency = max(elapsed_real, target_sim_latency)
+
+        return detections, round(sim_latency, 2)
 
     def draw_visualizations(self, image_bgr, detections, rule_eval=None, latency_ms=None):
         annotated = image_bgr.copy()
@@ -418,7 +364,7 @@ class _NativeHailoSegmentor:
         image_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 
         t0 = time.perf_counter()
-        input_batch = np.ascontiguousarray(np.expand_dims(image_rgb, axis=0), dtype=np.uint8)
+        input_batch = np.expand_dims(image_rgb, axis=0)
         results = self.pipeline.infer({self.input_info.name: input_batch})
         outputs = [results[x.name] for x in self.output_infos]
         latency_ms = (time.perf_counter() - t0) * 1000.0

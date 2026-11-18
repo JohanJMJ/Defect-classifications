@@ -12,6 +12,7 @@ import time
 import urllib.request
 import urllib.error
 
+
 def auto_discover_llama():
     """Searches common paths for ExecuTorch runner, .pte model, and tokenizer, prioritizing 1B models for edge speed."""
     possible_dirs = [
@@ -35,25 +36,18 @@ def auto_discover_llama():
                 tok_files = list(d.glob("*tokenizer*"))
 
                 if runner.is_file() and pte_files and tok_files:
-                    # Prioritize 0.5B (Qwen) or 1B (Llama) models if present
-                    models_05b = [p for p in pte_files if "0_5b" in p.name.lower() or "0.5b" in p.name.lower() or "qwen" in p.name.lower()]
+                    # Prioritize 1B models first for edge speed, otherwise first available .pte
                     models_1b = [p for p in pte_files if "1b" in p.name.lower()]
-                    chosen_model = models_05b[0] if models_05b else (models_1b[0] if models_1b else pte_files[0])
+                    chosen_model = models_1b[0] if models_1b else pte_files[0]
 
-                    # Prefer tokenizer.json for Qwen or tokenizer.model for Llama
-                    json_toks = [t for t in tok_files if t.name.endswith(".json")]
-                    model_toks = [t for t in tok_files if t.name.endswith(".model")]
-                    if "qwen" in chosen_model.name.lower() and json_toks:
-                        chosen_tok = json_toks[0]
-                    elif model_toks:
-                        chosen_tok = model_toks[0]
-                    else:
-                        chosen_tok = tok_files[0]
+                    # Prefer tokenizer.bin or tokenizer.model for Llama
+                    model_toks = [t for t in tok_files if t.name.endswith(".model") or t.name.endswith(".bin")]
+                    chosen_tok = model_toks[0] if model_toks else tok_files[0]
 
                     return runner, chosen_model, chosen_tok
                 elif runner.is_file():
                     model = pte_files[0] if pte_files else (d / "llama-1b.pte")
-                    tok = tok_files[0] if tok_files else (d / "tokenizer.json")
+                    tok = tok_files[0] if tok_files else (d / "tokenizer.bin")
                     return runner, model, tok
         except Exception:
             continue
@@ -105,11 +99,47 @@ INDUSTRIAL_KB = {
         "risk_threshold": "Internal fungal rot or aflatoxins fail food safety standards (FDA/EU).",
         "tooling_capa": "Calibrate optical color sorter sensitivity, check pneumatic reject nozzle pressure and timing."
     },
+    "leather": {
+        "material": "Natural Hide / Automotive Upholstery Leather",
+        "failure_modes": "Surface cut, scar deformation, glue smear, needle puncture",
+        "risk_threshold": "Grain punctures rupture under seat tension load; aesthetic grade reduction.",
+        "tooling_capa": "Inspect CNC oscillating cutting blade sharpness, check hide tension vacuum bed, clean feed rollers."
+    },
+    "metal_nut": {
+        "material": "Hardened Grade 8 Carbon Steel Hex Nut",
+        "failure_modes": "Stripped internal thread, bent chamfer corner, surface oxidation scratch",
+        "risk_threshold": "Thread deformation causes thread galling or total joint torque loss under dynamic load.",
+        "tooling_capa": "Inspect thread tapping tool wear, check cold-heading punch concentricity, verify rust-inhibitor bath."
+    },
     "pill": {
         "material": "Compressed Solid Dose Tablet",
         "failure_modes": "Tablet capping/lamination, edge chipping, surface contamination, deboss defect",
         "risk_threshold": "Chipping causes variable drug dosage; capping exposes formulation to rapid degradation.",
         "tooling_capa": "Check tablet press punch tooling wear, verify pre-compression force, inspect ejection cam."
+    },
+    "screw": {
+        "material": "Grade 10.9 Zinc-Plated Fastener",
+        "failure_modes": "Stripped Torx/hex head drive, thread pitch damage, head-to-shank neck scratch",
+        "risk_threshold": "Damaged drive prevents automated robotic assembly torque; neck defects trigger fatigue fracture.",
+        "tooling_capa": "Inspect thread-rolling dies, calibrate heading punch strike alignment, check zinc plating rack contacts."
+    },
+    "toothbrush": {
+        "material": "Molded Polypropylene & Nylon Bristles",
+        "failure_modes": "Splayed bristle tuft, missing anchor plate, bristle shedding, handle flash",
+        "risk_threshold": "Loose bristles present choking risk and gum abrasion during hygiene use.",
+        "tooling_capa": "Inspect bristle tufting stapling machine, verify anchor wire feed tension, examine bristle end-rounding buffer."
+    },
+    "transistor": {
+        "material": "Semiconductor TO-220 / DPAK Epoxy Package",
+        "failure_modes": "Bent lead terminal, cracked epoxy casing, heatsink tab scratch, solder bridging",
+        "risk_threshold": "Bent leads block PCB through-hole insertion; cracked packaging permits moisture ingress.",
+        "tooling_capa": "Inspect lead trim-and-form tooling die, calibrate SMD tape-and-reel feeder, check vacuum pickup nozzle."
+    },
+    "wood": {
+        "material": "Hardwood / Architectural Veneer Board",
+        "failure_modes": "Drilled hole, resin/liquid stain, surface gouge scratch, knot cracking",
+        "risk_threshold": "Deep gouges ruin decorative finish grade; knot fractures reduce structural bending strength.",
+        "tooling_capa": "Check planer blade sharpness, inspect automated sanding belt grit, clean conveyor drive belts."
     },
     "zipper": {
         "material": "Molded Plastic / Brass Interlocking Teeth",
@@ -168,7 +198,6 @@ class LlamaAdvisoryEngine:
         total_pct = rule_eval.get("total_mask_pct", 0)
         verdict = rule_eval.get("verdict", "REJECT")
         severity = rule_eval.get("severity", "CRITICAL")
-        max_conf = rule_eval.get("max_confidence", 0.85)
 
         det_summary = []
         for i, d in enumerate(detections, 1):
@@ -179,50 +208,25 @@ class LlamaAdvisoryEngine:
             )
         det_str = "; ".join(det_summary) if det_summary else "No anomalies"
 
-        is_qwen = self.model_path and "qwen" in str(self.model_path).lower()
-
-        if is_qwen:
-            prompt = (
-                f"<|im_start|>system\n"
-                f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
-                f"Respond strictly in 3 concise engineering bullet points:\n"
-                f"- Severity: {severity}\n"
-                f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
-                f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
-                f"\n"
-                f"Example:\n"
-                f"- Severity: CRITICAL\n"
-                f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
-                f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
-                f"<|im_end|>\n"
-                f"<|im_start|>user\n"
-                f"Component: {category.upper()} ({kb['material']}).\n"
-                f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
-                f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
-                f"Known factory failure modes: {kb['failure_modes']}.\n"
-                f"<|im_end|>\n"
-                f"<|im_start|>assistant\n"
-            )
-        else:
-            prompt = (
-                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-                f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
-                f"Respond strictly in 3 concise engineering bullet points:\n"
-                f"- Severity: {severity}\n"
-                f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
-                f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
-                f"\n"
-                f"Example:\n"
-                f"- Severity: CRITICAL\n"
-                f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
-                f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
-                f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
-                f"Component: {category.upper()} ({kb['material']}).\n"
-                f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
-                f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
-                f"Known factory failure modes: {kb['failure_modes']}.\n"
-                f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
-            )
+        prompt = (
+            f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
+            f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
+            f"Respond strictly in 3 concise engineering bullet points:\n"
+            f"- Severity: {severity}\n"
+            f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
+            f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
+            f"\n"
+            f"Example:\n"
+            f"- Severity: CRITICAL\n"
+            f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
+            f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
+            f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
+            f"Component: {category.upper()} ({kb['material']}).\n"
+            f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
+            f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
+            f"Known factory failure modes: {kb['failure_modes']}.\n"
+            f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+        )
         return prompt
 
     def generate_advisory(self, category, detections, image_shape, rule_eval):
@@ -332,7 +336,6 @@ class LlamaAdvisoryEngine:
             if res.returncode != 0:
                 err_msg = res.stderr.strip() or f"exit code {res.returncode}"
                 print(f"[ExecuTorch Failed] Exit {res.returncode}: {err_msg}")
-                # Return explicit Fast-Path Rule Fallback so the user knows Llama didn't execute
                 return (
                     f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
                     f"• Assessment: Fast-Path Rule fallback (ExecuTorch failed: {err_msg[:60]})\n"
@@ -355,15 +358,12 @@ class LlamaAdvisoryEngine:
                     pass
 
             marker_llama = "<|start_header_id|>assistant<|end_header_id|>"
-            marker_qwen = "<|im_start|>assistant"
             if marker_llama in out:
                 out = out.rsplit(marker_llama, 1)[-1]
-            elif marker_qwen in out:
-                out = out.rsplit(marker_qwen, 1)[-1]
             elif prompt in out:
                 out = out.replace(prompt, "")
 
-            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").replace("<|im_end|>", "").strip()
+            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
             return out if out else (
                 f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
                 f"• Assessment: ExecuTorch generated empty output.\n"

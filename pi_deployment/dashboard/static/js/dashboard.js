@@ -391,12 +391,11 @@ function selectSample(sampleUrl, category) {
 // File Upload & Drag and Drop
 // ----------------------------------------------------------------------
 function setupDropzone() {
-    // The dropZone is a <label for="fileInput"> so clicking it natively
-    // opens the file picker — do NOT also call fileInput.click() or
-    // the dialog opens and immediately cancels (double-fire).
-
-    // Reset value so selecting the same file again triggers change event
-    fileInput.addEventListener('click', () => { fileInput.value = ''; });
+    // dropZone is a <label> wrapping the hidden <input type="file">.
+    // Clicking the label naturally opens the file picker — no extra .click() needed.
+    // We clear fileInput.value on mousedown (BEFORE the dialog opens) so that
+    // selecting the same file a second time still fires the 'change' event.
+    dropZone.addEventListener('mousedown', () => { fileInput.value = ''; });
 
     fileInput.addEventListener('change', (e) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -661,46 +660,23 @@ function parseAndDisplayLlama(llamaText, fallbackAction) {
     let action = fallbackAction || "Proceed with standard flow.";
 
     const lines = llamaText.split('\n');
-    let currentSection = null;
-    let actionLines = [];
-    let assessmentLines = [];
-
     lines.forEach(l => {
         const clean = l.replace(/^[•\-\*]\s*/, '').trim();
-        if (!clean) return;
-
-        if (clean.toLowerCase().startsWith('severity:')) {
-            const rawSev = clean.substring(9).trim().toUpperCase();
-            const matchedSev = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'].find(s => rawSev.includes(s));
-            if (matchedSev) {
-                valSeverity.className = 'severity-badge badge-' + matchedSev.toLowerCase();
-                valSeverity.innerText = matchedSev;
-            }
-            currentSection = 'severity';
-        } else if (clean.toLowerCase().startsWith('assessment:')) {
-            assessmentLines.push(clean.substring(11).trim());
-            currentSection = 'assessment';
+        if (clean.toLowerCase().startsWith('assessment:')) {
+            assessment = clean.substring(11).trim();
         } else if (clean.toLowerCase().startsWith('action:')) {
-            actionLines.push(clean.substring(7).trim());
-            currentSection = 'action';
-        } else if (currentSection === 'assessment') {
-            assessmentLines.push(clean);
-        } else if (currentSection === 'action') {
-            actionLines.push(clean);
+            action = clean.substring(7).trim();
+        } else if (clean.toLowerCase().startsWith('severity:')) {
+            const sev = clean.substring(9).trim().toUpperCase();
+            if (['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'NONE'].includes(sev)) {
+                valSeverity.className = 'severity-badge badge-' + sev.toLowerCase();
+                valSeverity.innerText = sev;
+            }
         }
     });
 
-    if (assessmentLines.length > 0) {
-        valAssessment.innerText = assessmentLines.join(' ');
-    } else {
-        valAssessment.innerText = assessment;
-    }
-
-    if (actionLines.length > 0) {
-        valAction.innerText = actionLines.join(' ');
-    } else {
-        valAction.innerText = action;
-    }
+    valAssessment.innerText = assessment;
+    valAction.innerText = action;
 }
 
 function flashGpioIndicator(verdict) {

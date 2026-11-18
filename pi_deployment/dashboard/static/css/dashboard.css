@@ -429,6 +429,8 @@ body.theme-light .tab-btn.active {
     background: rgba(13, 19, 34, 0.5);
     cursor: pointer;
     transition: all 0.2s;
+    display: block;      /* needed when element is a <label> */
+    user-select: none;
 }
 
 body.theme-light .dropzone {
@@ -445,15 +447,18 @@ body.theme-light .dropzone {
     display: none;
 }
 
-/* When dropzone is a <label>, hide the raw file input but keep it accessible */
-.dropzone input[type="file"] {
-    position: absolute;
-    opacity: 0;
-    width: 1px;
-    height: 1px;
-    pointer-events: none;
-    top: 0;
-    left: 0;
+/* File input is hidden via inline style="display:none" on the element itself */
+
+.btn-browse-files {
+    display: inline-block;
+    padding: 6px 18px;
+    background: var(--accent-cyan);
+    color: #000;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border-radius: 5px;
+    cursor: pointer;
+    pointer-events: none; /* label click handles it — no double-fire */
 }
 
 .dropzone-icon {

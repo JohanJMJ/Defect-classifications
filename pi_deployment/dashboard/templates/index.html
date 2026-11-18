@@ -76,8 +76,9 @@
             <div class="tabs-content">
                 <!-- Tab 1: Upload -->
                 <div id="tab-upload" class="tab-pane active">
-                    <div class="dropzone" id="dropZone">
-                        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/jpg,image/webp,image/bmp">
+                    <!-- label wrapping makes the entire dropzone clickable to open the file picker -->
+                    <label class="dropzone" id="dropZone">
+                        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/jpg,image/webp,image/bmp" style="display:none;">
                         <div class="dropzone-content">
                             <div class="dropzone-icon">
                                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -87,11 +88,14 @@
                                 </svg>
                             </div>
                             <div class="dropzone-text" id="dropzoneMainText">
-                                <strong>Click to choose image</strong> or drag &amp; drop here
+                                <strong>Click to browse</strong> or drag &amp; drop here
                             </div>
                             <div class="dropzone-subtext" id="dropzoneSubText">PNG, JPG, JPEG, BMP supported</div>
+                            <div style="margin-top:12px;">
+                                <span class="btn-browse-files">Browse Files</span>
+                            </div>
                         </div>
-                    </div>
+                    </label>
                 </div>
 
                 <!-- Tab 2: Camera Stream & Continuous Capture -->

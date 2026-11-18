@@ -198,8 +198,7 @@ def api_inspect():
         sample_path = config.SAMPLE_IMAGES_DIR / clean_rel
         if sample_path.is_file():
             image_bgr = cv2.imread(str(sample_path))
-            # Preserve relative path so simulation can look it up in annotations
-            orig_filename = clean_rel  # e.g. "tile/defective_crack.png"
+            orig_filename = clean_rel  # Preserve relative path e.g. "tile/defective_crack.png"
         else:
             print(f"[Inspect] Sample file not found: {sample_path}")
             return jsonify({"success": False, "error": f"Sample not found: {clean_rel}"}), 404
@@ -247,7 +246,6 @@ def api_inspect():
     try:
         detections, vision_lat = vision_engine.infer(image_bgr, model_name=model_category, image_name=orig_filename)
     except Exception as e:
-        print(f"[Inspect] Vision inference error: {e}")
         return jsonify({"success": False, "error": f"Vision inference failed: {e}"}), 500
 
     # 3. Rule Engine Triage (< 0.1ms)
