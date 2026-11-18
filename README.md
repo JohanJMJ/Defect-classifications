@@ -51,7 +51,6 @@ Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local deve
 - **9 Pre-Compiled HEF Industrial Models**: Pre-quantized and compiled for Hailo-8 (`bottle`, `cable`, `capsule`, `carpet`, `grid`, `hazelnut`, `pill`, `tile`, `zipper`).
 - **Decoupled Asynchronous LLM Architecture**: Hailo-8 vision segmentation masks and pass/reject verdicts display **immediately (< 25 ms)**, while Llama 3.2 1B INT4 resolves root-cause advice asynchronously (**~2.5s**) with an animated UI progress indicator.
 - **Continuous Conveyor Mode**: Automated cycle inspection (1s to 10s intervals) with sub-millisecond deterministic triage bypass for non-stop manufacturing lines.
-- **Dynamic Sensitivity Slider**: Real-time confidence threshold control (8% to 75%) to adapt to varying factory lighting, cameras, or phone-screen scans.
 - **Self-Healing Hardware Pipeline**: Thread-safe mutex locking (`RLock`) and automatic PCIe reset (`hailortcli fw-control reset`) with instant 1-shot retry to eliminate PCIe timeouts.
 - **100% Offline Standalone Operation**: Zero cloud connections, zero external font CDNs, local SQLite database, and automated CSV audit logging.
 
@@ -257,7 +256,6 @@ sudo systemctl status qc-dashboard
 | **Decoupled 2-Stage Pipeline** | Hailo-8 Vision returns masks in **22 ms**. Llama 3.2 1B finishes root-cause advice in **~2.5s** with an animated timer. |
 | **On-Demand Camera** | Physical camera sensor stays completely powered off in standby mode; activates instantly upon opening the Live tab. |
 | **Continuous Capture** | Automated conveyor loop capturing frames at 1s to 10s intervals with sub-millisecond triage. |
-| **Sensitivity Slider** | Interactive confidence slider (8% to 75%) to tune detection thresholds for difficult lighting or phone screens. |
 | **Inspection Viewfinder** | High-contrast visual overlay showing bounding boxes, translucent defect segmentation masks, and certainty scores. |
 | **Audit Log & Analytics** | Historical inspection database, filter by verdict (PASS / MONITOR / REJECT), modal inspection details, and 1-click CSV export. |
 | **100% Offline Font Stack** | Zero external Google Fonts or CDN dependencies; renders natively on isolated factory air-gapped networks. |
@@ -306,8 +304,7 @@ python3 inference.py --model bottle --source 0 --show
 **Best Practices**:
 1. **Zoom in / Move closer**: Make sure the phone screen fills **85%–90% of the camera viewfinder** (no fingers or bezels visible).
 2. **Lower brightness**: Dim the phone screen to **25%–35%** to stop exposure blowout.
-3. **Use the Sensitivity Slider**: Set the dashboard **Sensitivity (CONF)** slider to **15%–18%**.
-4. **Or upload directly**: Open `http://<PI_IP>:5000` on your phone browser and upload the photo directly via the **Upload Image** tab.
+3. **Upload directly**: Open `http://<PI_IP>:5000` on your phone browser and upload the photo directly via the **Upload Image** tab.
 
 ### Q3: `error while loading shared libraries: libllama_runner.so`
 **Fix**: Ensure `LD_LIBRARY_PATH` points to your ExecuTorch directory:

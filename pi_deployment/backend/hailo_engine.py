@@ -124,7 +124,7 @@ class HailoVisionEngine:
             self.current_model_name = model_name
             return True
 
-    def infer(self, image_bgr, model_name="tile", conf_thresh=0.20, iou_thresh=0.50):
+    def infer(self, image_bgr, model_name="tile", conf_thresh=0.25, iou_thresh=0.50):
         """
         Runs visual inference on an input BGR OpenCV image with thread locking,
         automatic hardware reset upon PCIe/Hailo timeout, and graceful fallback.

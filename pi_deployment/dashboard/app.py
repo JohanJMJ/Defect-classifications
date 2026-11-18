@@ -180,8 +180,6 @@ def api_inspect():
     model_category = request.form.get("model", "tile").lower()
     component_id = request.form.get("component_id") or f"COMP-{uuid.uuid4().hex[:6].upper()}"
     source_type = request.form.get("source_type", "upload")
-    conf_thresh = float(request.form.get("conf_thresh", 0.20))
-    iou_thresh = float(request.form.get("iou_thresh", 0.50))
 
     image_bgr = None
     orig_filename = ""
@@ -246,9 +244,7 @@ def api_inspect():
 
     # 2. Vision AI Inference (Hailo-8 / Mock)
     try:
-        detections, vision_lat = vision_engine.infer(
-            image_bgr, model_name=model_category, conf_thresh=conf_thresh, iou_thresh=iou_thresh
-        )
+        detections, vision_lat = vision_engine.infer(image_bgr, model_name=model_category)
     except Exception as e:
         print(f"[Inspect] Vision inference error: {e}")
         return jsonify({"success": False, "error": f"Vision inference failed: {e}"}), 500

@@ -23,8 +23,6 @@ const modelSelect = document.getElementById('modelSelect');
 const modelDesc = document.getElementById('modelDesc');
 const componentIdInput = document.getElementById('componentId');
 const btnGenId = document.getElementById('btnGenId');
-const confThreshInput = document.getElementById('confThreshInput');
-const confThreshValue = document.getElementById('confThreshValue');
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -110,14 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Auto ID button
     btnGenId.addEventListener('click', generateSerialId);
-
-    // Sensitivity slider listener
-    if (confThreshInput && confThreshValue) {
-        confThreshInput.addEventListener('input', () => {
-            const pct = Math.round(parseFloat(confThreshInput.value) * 100);
-            confThreshValue.innerText = pct + '%';
-        });
-    }
 });
 
 
@@ -484,8 +474,6 @@ function executeInspection(isCamera = false, isContinuous = false, onComplete = 
     const formData = new FormData();
     formData.append('model', model);
     formData.append('component_id', componentId);
-    const confThresh = confThreshInput ? confThreshInput.value : '0.20';
-    formData.append('conf_thresh', confThresh);
 
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab');
 
