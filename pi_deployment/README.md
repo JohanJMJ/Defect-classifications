@@ -37,7 +37,6 @@ pi_deployment/
 │   ├── zipper_hailo8.hef        # Zipper defect segmentation (21.2 MB)
 │   ├── models.yaml              # Models registry & specifications
 │   └── metadata.yaml            # Base model metadata & segmentation classes
-├── dataset/                     # Validation dataset for accuracy/mAP evaluation
 ├── sample_images/               # Categorized test images for each model
 ├── service/                     # Systemd service for auto-start on factory boot
 ├── results/                     # Output folder for annotated images & JSON reports

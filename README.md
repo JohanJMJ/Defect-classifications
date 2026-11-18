@@ -84,7 +84,6 @@ Defect-classifications/
     │   ├── templates/            # Offline HTML templates (base, index, history)
     │   └── static/               # Responsive CSS, icons, and async JavaScript polling
     ├── models/                   # 9 Pre-compiled Hailo-8 HEF executables (26 TOPS)
-    ├── dataset/                  # Validation images and ground-truth polygon labels
     ├── sample_images/            # Categorized test images for all 9 models
     ├── service/                  # Systemd service for auto-start on factory boot
     ├── results/                  # Inference output directory (annotated images & reports)
