@@ -255,33 +255,78 @@ class LlamaAdvisoryEngine:
 
         print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend} (RAM Resident: {self.is_ram_disk})")
 
+    # Category-specific 1-shot examples: (assessment sentence, action sentence)
+    # Each anchors the model's vocabulary to the right industrial domain.
+    _CATEGORY_EXAMPLES = {
+        "tile":       ("Stress crack propagates under 1500N floor load per ISO 10545.",
+                       "Stop press, inspect Kiln Zone 3 cooling ramp."),
+        "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",
+                       "Reject lot, check blow-mold clamp alignment."),
+        "cable":      ("Exposed copper conductor causes dielectric breakdown fire risk.",
+                       "Check wire-stripping blade clearance immediately."),
+        "capsule":    ("Cap split compromises active ingredient dosage integrity.",
+                       "Check capsule closing station pin depth."),
+        "carpet":     ("Thread tear propagates under foot traffic load.",
+                       "Inspect tufting needle sharpness, check yarn tension."),
+        "grid":       ("Bent strut reduces structural shear resistance per spec.",
+                       "Divert part, inspect stamping die clearance."),
+        "hazelnut":   ("Shell crack permits aflatoxin mold growth, fails FDA standard.",
+                       "Calibrate optical color sorter, check reject nozzle."),
+        "leather":    ("Grain puncture ruptures under seat upholstery tension load.",
+                       "Inspect CNC cutting blade sharpness, clean feed rollers."),
+        "metal_nut":  ("Stripped thread causes galling and joint torque loss.",
+                       "Inspect thread tapping tool wear, check punch concentricity."),
+        "pill":       ("Tablet capping exposes formulation to rapid degradation.",
+                       "Check punch tooling wear, verify pre-compression force."),
+        "screw":      ("Damaged drive prevents robotic torque during automated assembly.",
+                       "Inspect thread-rolling dies, calibrate heading punch alignment."),
+        "toothbrush": ("Loose bristle presents choking risk during hygiene use.",
+                       "Inspect tufting stapler, verify anchor wire tension."),
+        "transistor": ("Bent lead blocks PCB insertion and risks solder short.",
+                       "Inspect lead trim-form die, check vacuum pickup nozzle."),
+        "wood":       ("Deep gouge ruins decorative finish grade, reduces bending strength.",
+                       "Check planer blade sharpness, inspect sanding belt grit."),
+        "zipper":     ("Missing tooth prevents interlock, causing separation under lateral pull.",
+                       "Inspect tooth injection mold cavity, check chain guide."),
+    }
+
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
-        Builds a 1-shot anchored prompt (~65 tokens) with assistant pre-filling.
-        Prevents open-ended percentage rambling and guarantees <20 token generation.
+        Builds a KB-enriched 1-shot prompt (~85 tokens) with assistant pre-filling.
+        Injects failure_modes and risk_threshold so the model produces domain-specific,
+        failure-mode-aware assessments rather than generic sentences.
         """
-        h, w = image_shape[:2]
         cat_key = category.lower()
         kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
 
         total_pct = rule_eval.get("total_mask_pct", 0)
         verdict = rule_eval.get("verdict", "REJECT")
         severity = rule_eval.get("severity", "CRITICAL")
+        conf_pct = rule_eval.get("max_confidence", 0) * 100
 
-        # Clean defect labels (no raw decimal percentage spam)
+        # Clean defect labels
         labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
         det_names = "/".join(labels) if labels else "defect"
         count = len(detections)
         det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
 
+        # Category-matched 1-shot example (falls back to grid if unknown)
+        ex_assessment, ex_action = self._CATEGORY_EXAMPLES.get(
+            cat_key, self._CATEGORY_EXAMPLES["grid"]
+        )
+
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"QA Inspector. Exactly 1 sentence per bullet (max 12 words each).\n"
-            f"Example:\n"
-            f"- Assessment: Bent grid strut reduces mechanical shear resistance.\n"
-            f"- Action: Divert part to rework, inspect stamping die.<|eot_id|>\n"
+            f"Industrial QC Engineer. Exactly 1 sentence per bullet (max 12 words).\n"
+            f"Example ({cat_key}):\n"
+            f"- Assessment: {ex_assessment}\n"
+            f"- Action: {ex_action}<|eot_id|>\n"
             f"<|start_header_id|>user<|end_header_id|>\n"
-            f"Part: {category.upper()} ({kb['material']}). Defect: {det_desc} ({total_pct:.1f}% area). Verdict: {verdict}. Check: {kb['tooling_capa']}<|eot_id|>\n"
+            f"Part: {category.upper()} ({kb['material']}). "
+            f"Known failures: {kb['failure_modes']}. "
+            f"Risk: {kb['risk_threshold']} "
+            f"Defect: {det_desc} ({total_pct:.1f}% area, {conf_pct:.0f}% conf). "
+            f"Verdict: {verdict}.<|eot_id|>\n"
             f"<|start_header_id|>assistant<|end_header_id|>\n"
             f"- Severity: {severity}\n"
             f"- Assessment:"

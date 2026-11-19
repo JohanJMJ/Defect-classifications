@@ -415,6 +415,73 @@ def evaluate_qc_rules(detections, image_shape):
 
 
 # ---------------------------------------------------------------------
+# Industrial Knowledge Base (mirrors backend/llama_engine.py INDUSTRIAL_KB)
+# ---------------------------------------------------------------------
+INDUSTRIAL_KB = {
+    "tile":       {"material": "Ceramic / Porcelain Flooring",
+                   "failure_modes": "Mechanical press stress cracks, thermal firing fractures, conveyor oil leaks, glue overflow",
+                   "risk_threshold": "Cracks >3% cause catastrophic failure under 1500N floor load (ISO 10545-4).",
+                   "tooling_capa": "Inspect hydraulic press die balance, verify Kiln Zone 3 cooling ramp (<15°C/min), check pneumatic chain lubricator."},
+    "bottle":     {"material": "PET / Glass Beverage Container",
+                   "failure_modes": "Neck finish cracks, sidewall parison bubbles, foreign particulate contamination",
+                   "risk_threshold": "Neck defects destroy hermetic seal, causing pressure loss and microbial spoilage.",
+                   "tooling_capa": "Inspect blow-mold clamp alignment, check preform heater lamp calibration, inspect capper torque."},
+    "cable":      {"material": "Copper Conductor / Extruded PVC Sheath",
+                   "failure_modes": "Conductor strand breakage, cut/pinched insulation, crimp deformation",
+                   "risk_threshold": "Exposed copper causes dielectric breakdown, short circuits, and fire hazard.",
+                   "tooling_capa": "Check wire-stripping blade clearance, inspect feed guide tension rollers, calibrate crimp applicator."},
+    "capsule":    {"material": "Gelatin / HPMC Pharmaceutical Capsule",
+                   "failure_modes": "Cap/body split, pinhole puncture, dosage leakage, surface dent",
+                   "risk_threshold": "Wall rupture compromises active ingredient dosage integrity and shelf-life.",
+                   "tooling_capa": "Inspect capsule rectifier track, check closing station pin depth, verify vacuum transfer cups."},
+    "carpet":     {"material": "Woven Textile / Polypropylene Fiber",
+                   "failure_modes": "Tuft pull-out, loop cut, metal particulate, uneven pile density",
+                   "risk_threshold": "Thread tears propagate under foot traffic; metal fragments violate safety standards.",
+                   "tooling_capa": "Examine tufting needle sharpness, check yarn tension brakes, sweep inline magnetic metal detector."},
+    "grid":       {"material": "Stamped Sheet Metal / Aluminum Honeycomb",
+                   "failure_modes": "Bent mesh strut, broken weld node, adhesive drip, burr deformation",
+                   "risk_threshold": "Strut fractures reduce structural shear resistance and block airflow volume.",
+                   "tooling_capa": "Inspect stamping die clearance, examine spot-weld electrode tips, check trim blade burrs."},
+    "hazelnut":   {"material": "Organic Food / Agricultural Nut",
+                   "failure_modes": "Shell crack, insect bore hole, fungal aflatoxin mold, internal rot",
+                   "risk_threshold": "Internal fungal rot or aflatoxins fail food safety standards (FDA/EU).",
+                   "tooling_capa": "Calibrate optical color sorter sensitivity, check pneumatic reject nozzle pressure and timing."},
+    "leather":    {"material": "Natural Hide / Automotive Upholstery Leather",
+                   "failure_modes": "Surface cut, scar deformation, glue smear, needle puncture",
+                   "risk_threshold": "Grain punctures rupture under seat tension load; aesthetic grade reduction.",
+                   "tooling_capa": "Inspect CNC oscillating cutting blade sharpness, check hide tension vacuum bed, clean feed rollers."},
+    "metal_nut":  {"material": "Hardened Grade 8 Carbon Steel Hex Nut",
+                   "failure_modes": "Stripped internal thread, bent chamfer corner, surface oxidation scratch",
+                   "risk_threshold": "Thread deformation causes thread galling or total joint torque loss under dynamic load.",
+                   "tooling_capa": "Inspect thread tapping tool wear, check cold-heading punch concentricity, verify rust-inhibitor bath."},
+    "pill":       {"material": "Compressed Solid Dose Tablet",
+                   "failure_modes": "Tablet capping/lamination, edge chipping, surface contamination, deboss defect",
+                   "risk_threshold": "Chipping causes variable drug dosage; capping exposes formulation to rapid degradation.",
+                   "tooling_capa": "Check tablet press punch tooling wear, verify pre-compression force, inspect ejection cam."},
+    "screw":      {"material": "Grade 10.9 Zinc-Plated Fastener",
+                   "failure_modes": "Stripped Torx/hex head drive, thread pitch damage, head-to-shank neck scratch",
+                   "risk_threshold": "Damaged drive prevents automated robotic assembly torque; neck defects trigger fatigue fracture.",
+                   "tooling_capa": "Inspect thread-rolling dies, calibrate heading punch strike alignment, check zinc plating rack contacts."},
+    "toothbrush": {"material": "Molded Polypropylene & Nylon Bristles",
+                   "failure_modes": "Splayed bristle tuft, missing anchor plate, bristle shedding, handle flash",
+                   "risk_threshold": "Loose bristles present choking risk and gum abrasion during hygiene use.",
+                   "tooling_capa": "Inspect bristle tufting stapling machine, verify anchor wire feed tension, examine bristle end-rounding buffer."},
+    "transistor": {"material": "Semiconductor TO-220 / DPAK Epoxy Package",
+                   "failure_modes": "Bent lead terminal, cracked epoxy casing, heatsink tab scratch, solder bridging",
+                   "risk_threshold": "Bent leads block PCB through-hole insertion; cracked packaging permits moisture ingress.",
+                   "tooling_capa": "Inspect lead trim-and-form tooling die, calibrate SMD tape-and-reel feeder, check vacuum pickup nozzle."},
+    "wood":       {"material": "Hardwood / Architectural Veneer Board",
+                   "failure_modes": "Drilled hole, resin/liquid stain, surface gouge scratch, knot cracking",
+                   "risk_threshold": "Deep gouges ruin decorative finish grade; knot fractures reduce structural bending strength.",
+                   "tooling_capa": "Check planer blade sharpness, inspect automated sanding belt grit, clean conveyor drive belts."},
+    "zipper":     {"material": "Molded Plastic / Brass Interlocking Teeth",
+                   "failure_modes": "Missing tooth, bent pitch spacing, misaligned slider stop, slider catch",
+                   "risk_threshold": "Tooth displacement prevents tooth interlock, causing complete separation under lateral pull.",
+                   "tooling_capa": "Inspect tooth injection mold cavity, check ultrasonic top-stop welding horn, examine chain guide."},
+}
+
+
+# ---------------------------------------------------------------------
 # Optimized Llama Advisory Engine
 # ---------------------------------------------------------------------
 class LlamaAdvisoryEngine:
@@ -471,27 +538,72 @@ class LlamaAdvisoryEngine:
             except Exception as e:
                 print(f"[RAM Staging] /dev/shm staging skipped: {e}")
 
+    # Category-specific 1-shot examples — mirrors llama_engine.py
+    _CATEGORY_EXAMPLES = {
+        "tile":       ("Stress crack propagates under 1500N floor load per ISO 10545.",
+                       "Stop press, inspect Kiln Zone 3 cooling ramp."),
+        "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",
+                       "Reject lot, check blow-mold clamp alignment."),
+        "cable":      ("Exposed copper conductor causes dielectric breakdown fire risk.",
+                       "Check wire-stripping blade clearance immediately."),
+        "capsule":    ("Cap split compromises active ingredient dosage integrity.",
+                       "Check capsule closing station pin depth."),
+        "carpet":     ("Thread tear propagates under foot traffic load.",
+                       "Inspect tufting needle sharpness, check yarn tension."),
+        "grid":       ("Bent strut reduces structural shear resistance per spec.",
+                       "Divert part, inspect stamping die clearance."),
+        "hazelnut":   ("Shell crack permits aflatoxin mold growth, fails FDA standard.",
+                       "Calibrate optical color sorter, check reject nozzle."),
+        "leather":    ("Grain puncture ruptures under seat upholstery tension load.",
+                       "Inspect CNC cutting blade sharpness, clean feed rollers."),
+        "metal_nut":  ("Stripped thread causes galling and joint torque loss.",
+                       "Inspect thread tapping tool wear, check punch concentricity."),
+        "pill":       ("Tablet capping exposes formulation to rapid degradation.",
+                       "Check punch tooling wear, verify pre-compression force."),
+        "screw":      ("Damaged drive prevents robotic torque during automated assembly.",
+                       "Inspect thread-rolling dies, calibrate heading punch alignment."),
+        "toothbrush": ("Loose bristle presents choking risk during hygiene use.",
+                       "Inspect tufting stapler, verify anchor wire tension."),
+        "transistor": ("Bent lead blocks PCB insertion and risks solder short.",
+                       "Inspect lead trim-form die, check vacuum pickup nozzle."),
+        "wood":       ("Deep gouge ruins decorative finish grade, reduces bending strength.",
+                       "Check planer blade sharpness, inspect sanding belt grit."),
+        "zipper":     ("Missing tooth prevents interlock, causing separation under lateral pull.",
+                       "Inspect tooth injection mold cavity, check chain guide."),
+    }
+
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
-        Creates a 1-shot anchored prompt (~65 tokens).
-        Prevents raw percentage spam and anchors output length to <20 tokens.
+        KB-enriched 1-shot prompt (~85 tokens) with assistant pre-filling.
+        Injects failure_modes and risk_threshold for domain-specific assessments.
         """
-        h, w = image_shape[:2]
+        cat_key = category.lower()
+        kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
+
         labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
         det_names = "/".join(labels) if labels else "defect"
         count = len(detections)
         det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
         severity = rule_eval.get("severity", "CRITICAL")
         total_pct = rule_eval.get("total_mask_pct", 0)
+        conf_pct = rule_eval.get("max_confidence", 0) * 100
+
+        ex_assessment, ex_action = self._CATEGORY_EXAMPLES.get(
+            cat_key, self._CATEGORY_EXAMPLES["grid"]
+        )
 
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"QA Inspector. Exactly 1 sentence per bullet (max 12 words each).\n"
-            f"Example:\n"
-            f"- Assessment: Bent grid strut reduces mechanical shear resistance.\n"
-            f"- Action: Divert part to rework, inspect stamping die.<|eot_id|>\n"
+            f"Industrial QC Engineer. Exactly 1 sentence per bullet (max 12 words).\n"
+            f"Example ({cat_key}):\n"
+            f"- Assessment: {ex_assessment}\n"
+            f"- Action: {ex_action}<|eot_id|>\n"
             f"<|start_header_id|>user<|end_header_id|>\n"
-            f"Part: {category.upper()} ({w}x{h}). Defect: {det_desc} ({total_pct:.1f}% area). Verdict: {rule_eval['verdict']}.<|eot_id|>\n"
+            f"Part: {category.upper()} ({kb['material']}). "
+            f"Known failures: {kb['failure_modes']}. "
+            f"Risk: {kb['risk_threshold']} "
+            f"Defect: {det_desc} ({total_pct:.1f}% area, {conf_pct:.0f}% conf). "
+            f"Verdict: {rule_eval['verdict']}.<|eot_id|>\n"
             f"<|start_header_id|>assistant<|end_header_id|>\n"
             f"- Severity: {severity}\n"
             f"- Assessment:"
