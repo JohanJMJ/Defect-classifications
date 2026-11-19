@@ -79,6 +79,13 @@ let activeLlamaInspId = null;
 
 const recentTableBody = document.getElementById('recentTableBody');
 
+// Emergency Audio / Visual Alarm Banner Elements
+const emergencyAlarmBanner = document.getElementById('emergencyAlarmBanner');
+const alarmCompId = document.getElementById('alarmCompId');
+const alarmDefectDesc = document.getElementById('alarmDefectDesc');
+const btnAcknowledgeAlarm = document.getElementById('btnAcknowledgeAlarm');
+const btnToggleAlarmSound = document.getElementById('btnToggleAlarmSound');
+const alarmSoundIcon = document.getElementById('alarmSoundIcon');
 
 // ----------------------------------------------------------------------
 // Initialization
@@ -89,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDropzone();
     setupModelSelector();
     setupCameraControls();
+    setupAlarmBannerListeners();
     loadSamplesForCategory(modelSelect.value);
 
     // Run inspect button
@@ -599,7 +607,14 @@ function renderInspectionResults(insp) {
     // 5. Flash Hardware GPIO simulation indicator
     flashGpioIndicator(insp.verdict);
 
-    // 6. Prepend to Recent Table
+    // 6. Emergency Audio-Visual Alarm Banner
+    if (insp.verdict === 'REJECT' || insp.severity === 'CRITICAL' || insp.severity === 'HIGH') {
+        triggerSevereDefectAlarm(insp);
+    } else if (insp.verdict === 'PASS') {
+        silenceSevereDefectAlarm();
+    }
+
+    // 7. Prepend to Recent Table
     prependRecentInspection(insp);
 }
 
@@ -732,9 +747,135 @@ function prependRecentInspection(insp) {
     recentTableBody.innerHTML = html;
 }
 
+// ----------------------------------------------------------------------
+// Audio Alarm & Emergency Banner Subsystem (Web Audio API)
+// ----------------------------------------------------------------------
+let audioCtx = null;
+let alarmOscillatorInterval = null;
+let isAlarmActive = false;
+let isAlarmMuted = localStorage.getItem('dashboard_alarm_muted') === 'true';
+
+function initAudioContext() {
+    if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) audioCtx = new AudioContextClass();
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playIndustrialAlarmBeep(freq = 880, duration = 0.18) {
+    if (isAlarmMuted || !audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth'; // Industrial warning buzzer tone
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {
+        console.warn('[AudioAlarm] Error playing beep:', e);
+    }
+}
+
+function startAlarmAudio() {
+    initAudioContext();
+    if (alarmOscillatorInterval) clearInterval(alarmOscillatorInterval);
+    if (isAlarmMuted) return;
+
+    let highTone = true;
+    playIndustrialAlarmBeep(880, 0.20);
+    alarmOscillatorInterval = setInterval(() => {
+        if (!isAlarmActive || isAlarmMuted) {
+            clearInterval(alarmOscillatorInterval);
+            alarmOscillatorInterval = null;
+            return;
+        }
+        highTone = !highTone;
+        playIndustrialAlarmBeep(highTone ? 880 : 660, 0.20);
+    }, 380);
+}
+
+function stopAlarmAudio() {
+    if (alarmOscillatorInterval) {
+        clearInterval(alarmOscillatorInterval);
+        alarmOscillatorInterval = null;
+    }
+}
+
+function triggerSevereDefectAlarm(insp) {
+    isAlarmActive = true;
+    if (alarmCompId) alarmCompId.innerText = insp.component_id || 'UNKNOWN';
+    if (alarmDefectDesc) {
+        const defName = (insp.defect_class || 'Surface Anomaly').replace('_', ' ').toUpperCase();
+        const areaStr = insp.mask_area_pct ? `(${insp.mask_area_pct.toFixed(1)}% area)` : '';
+        alarmDefectDesc.innerText = `${defName} ${areaStr} exceeds tolerance limit. Divert component immediately.`;
+    }
+
+    if (emergencyAlarmBanner) {
+        emergencyAlarmBanner.classList.remove('hidden');
+    }
+    startAlarmAudio();
+}
+
+function silenceSevereDefectAlarm() {
+    isAlarmActive = false;
+    stopAlarmAudio();
+    if (emergencyAlarmBanner) {
+        emergencyAlarmBanner.classList.add('hidden');
+    }
+}
+
+function setupAlarmBannerListeners() {
+    if (btnAcknowledgeAlarm) {
+        btnAcknowledgeAlarm.addEventListener('click', () => {
+            silenceSevereDefectAlarm();
+        });
+    }
+
+    if (btnToggleAlarmSound) {
+        updateAlarmSoundIcon();
+        btnToggleAlarmSound.addEventListener('click', () => {
+            isAlarmMuted = !isAlarmMuted;
+            localStorage.setItem('dashboard_alarm_muted', isAlarmMuted ? 'true' : 'false');
+            updateAlarmSoundIcon();
+            if (isAlarmMuted) {
+                stopAlarmAudio();
+            } else if (isAlarmActive) {
+                startAlarmAudio();
+            }
+        });
+    }
+}
+
+function updateAlarmSoundIcon() {
+    if (alarmSoundIcon) {
+        alarmSoundIcon.innerText = isAlarmMuted ? '🔇' : '🔊';
+    }
+    if (btnToggleAlarmSound) {
+        btnToggleAlarmSound.title = isAlarmMuted ? 'Unmute Alarm Sound' : 'Mute Alarm Sound';
+    }
+}
+
 // Global test alert helper
 window.testAlert = function(verdict) {
     flashGpioIndicator(verdict);
+    if (verdict === 'REJECT') {
+        triggerSevereDefectAlarm({
+            component_id: 'SIMULATED-TEST',
+            defect_class: 'Critical Surface Anomaly',
+            mask_area_pct: 14.8,
+            severity: 'CRITICAL',
+            verdict: 'REJECT'
+        });
+    } else if (verdict === 'PASS') {
+        silenceSevereDefectAlarm();
+    }
     fetch('/api/alerts/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

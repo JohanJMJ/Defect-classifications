@@ -5,6 +5,37 @@
 {% block content %}
 <div class="studio-layout">
 
+    <!-- High-Visibility Industrial Emergency Audio/Visual Alarm Banner -->
+    <div id="emergencyAlarmBanner" class="emergency-alarm-banner hidden">
+        <div class="alarm-banner-content">
+            <div class="alarm-icon-box">
+                <svg class="alarm-siren-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+            </div>
+            <div class="alarm-text-block">
+                <div class="alarm-headline">
+                    <span class="alarm-badge">CRITICAL DEFECT DETECTED</span>
+                    <span class="alarm-part-action">PART DISPOSITION: REJECT</span>
+                </div>
+                <div class="alarm-details" id="alarmDetailsText">
+                    Component <strong id="alarmCompId">--</strong> failed optical quality gate:
+                    <span id="alarmDefectDesc">Surface anomaly exceeds tolerance threshold.</span>
+                </div>
+            </div>
+            <div class="alarm-actions">
+                <button type="button" id="btnToggleAlarmSound" class="btn-alarm-sound" title="Toggle Alarm Sound (Mute/Unmute)">
+                    <span id="alarmSoundIcon">🔊</span>
+                </button>
+                <button type="button" id="btnAcknowledgeAlarm" class="btn-acknowledge-alarm" title="Acknowledge fault and silence alarm">
+                    ✓ Acknowledge &amp; Silence
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Left / Center Column: Workspace, Inputs & Viewfinder -->
     <div class="studio-left">
 

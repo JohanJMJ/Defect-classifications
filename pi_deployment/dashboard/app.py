@@ -198,6 +198,11 @@ def api_inspect():
     if source_type == "camera":
         image_bgr = camera.capture_snapshot()
         orig_filename = f"camera_{int(time.time())}.jpg"
+        if image_bgr is not None:
+            mean_val = float(image_bgr.mean())
+            print(f"[Inspect] Camera frame captured: shape={image_bgr.shape}, mean_brightness={mean_val:.1f}")
+            if mean_val < 15.0:
+                print(f"[Inspect] WARNING: Camera frame is severely underexposed (brightness={mean_val:.1f})")
 
     elif source_type == "sample":
         rel_sample = request.form.get("sample_path", "")
