@@ -152,12 +152,10 @@ def api_telemetry():
     telemetry["llama_backend"] = llama_engine.backend
     telemetry["llama_ram_disk"] = getattr(llama_engine, "is_ram_disk", False)
     telemetry["llama_model_name"] = llama_engine.model_path.name if getattr(llama_engine, "model_path", None) else "None"
-    if llama_engine.backend == "server":
-        telemetry["llama_location"] = "In-Memory Daemon (RAM)"
-    elif getattr(llama_engine, "is_ram_disk", False):
-        telemetry["llama_location"] = "RAM (/dev/shm)"
+    if getattr(llama_engine, "is_ram_disk", False):
+        telemetry["llama_location"] = "ExecuTorch (RAM /dev/shm)"
     elif llama_engine.backend == "executorch":
-        telemetry["llama_location"] = "Disk (MicroSD)"
+        telemetry["llama_location"] = "ExecuTorch (Disk)"
     else:
         telemetry["llama_location"] = "Simulation Mode"
     return jsonify({"success": True, "telemetry": telemetry})

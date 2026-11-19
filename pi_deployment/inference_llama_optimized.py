@@ -419,97 +419,57 @@ def evaluate_qc_rules(detections, image_shape):
 # ---------------------------------------------------------------------
 class LlamaAdvisoryEngine:
     """
-    Multi-backend Llama client:
-      - 'auto': Connects to in-memory persistent daemon if active (0s cold load), else ExecuTorch.
-      - 'server': Uses persistent HTTP connection to llama-server (0s cold load!).
-      - 'executorch': Invokes ARM64 llama_main executable directly.
+    On-Device Arm ExecuTorch Llama Advisory Engine
+    Executes SpinQuant INT4 .pte models natively on Raspberry Pi 5 ARM Cortex-A76.
     """
 
     def __init__(
         self,
-        backend="auto",
+        backend="executorch",
         runner_path=DEFAULT_LLAMA_RUNNER,
         model_path=DEFAULT_LLAMA_MODEL,
         tokenizer_path=DEFAULT_LLAMA_TOKENIZER,
-        server_url="http://127.0.0.1:8080/completion",
         max_tokens=48,
         temperature=0.1,
         timeout=180,
     ):
-        self.requested_backend = backend
         self.backend = backend
         self.runner_path = Path(runner_path)
         self.model_path = Path(model_path)
         self.tokenizer_path = Path(tokenizer_path)
-        self.server_url = server_url
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
         self.timeout = int(timeout)
 
     def validate(self):
-        # Auto-detect if persistent daemon is listening
-        if self.backend == "auto":
-            base_url = self.server_url.rsplit("/", 1)[0]
-            server_listening = False
-            for probe_path in ["/health", ""]:
-                try:
-                    req = urllib.request.Request(
-                        base_url + probe_path,
-                        headers={"User-Agent": "Hailo-Pi5-Probe"},
-                    )
-                    with urllib.request.urlopen(req, timeout=0.5) as resp:
-                        if resp.status in (200, 301, 302, 404):
-                            server_listening = True
-                            break
-                except Exception:
-                    pass
+        required = [
+            ("Llama runner", self.runner_path),
+            ("Llama model", self.model_path),
+            ("Llama tokenizer", self.tokenizer_path),
+        ]
+        missing = [f"{desc}: {p}" for desc, p in required if not p.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                "Required ExecuTorch file(s) not found:\n  " + "\n  ".join(missing)
+            )
+        if not os.access(self.runner_path, os.X_OK):
+            raise PermissionError(f"ExecuTorch runner is not executable: {self.runner_path}")
 
-            if server_listening:
-                self.backend = "server"
-                print(f"[Llama] ⚡ Connected to In-Memory Persistent Daemon on {self.server_url} (0s startup latency, ~2.5s generation)!")
-            else:
-                self.backend = "executorch"
-                print("[Llama] Persistent daemon not active on port 8080. Using ExecuTorch fallback.")
-
-        if self.backend == "executorch":
-            required = [
-                ("Llama runner", self.runner_path),
-                ("Llama model", self.model_path),
-                ("Llama tokenizer", self.tokenizer_path),
-            ]
-            missing = [f"{desc}: {p}" for desc, p in required if not p.is_file()]
-            if missing:
-                raise FileNotFoundError(
-                    "Required Llama file(s) not found:\n  " + "\n  ".join(missing)
-                )
-            if not os.access(self.runner_path, os.X_OK):
-                raise PermissionError(f"Runner is not executable: {self.runner_path}")
-
-            # Fast-Path RAM Disk Staging (/dev/shm) for zero MicroSD cold load
-            shm_root = Path("/dev/shm")
-            if shm_root.is_dir() and os.access(str(shm_root), os.W_OK):
-                try:
-                    import shutil
-                    shm_dir = shm_root / "executorch"
-                    shm_dir.mkdir(parents=True, exist_ok=True)
-                    shm_model = shm_dir / self.model_path.name
-                    if not shm_model.is_file() or shm_model.stat().st_size != self.model_path.stat().st_size:
-                        print(f"[RAM Staging] ⚡ Mirroring {self.model_path.name} to /dev/shm for zero cold load...")
-                        shutil.copy2(str(self.model_path), str(shm_model))
-                    self.model_path = shm_model
-                    print(f"[RAM Staging] ✅ ExecuTorch model active from RAM: {self.model_path}")
-                except Exception as e:
-                    print(f"[RAM Staging] /dev/shm staging skipped: {e}")
-
-        elif self.backend == "server":
-            # Test connectivity to local server
+        # Fast-Path RAM Disk Staging (/dev/shm) for zero MicroSD cold load
+        shm_root = Path("/dev/shm")
+        if shm_root.is_dir() and os.access(str(shm_root), os.W_OK):
             try:
-                base_url = self.server_url.rsplit("/", 1)[0] + "/health"
-                req = urllib.request.Request(base_url, headers={"User-Agent": "Hailo-Pi5"})
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    pass
-            except Exception:
-                pass
+                import shutil
+                shm_dir = shm_root / "executorch"
+                shm_dir.mkdir(parents=True, exist_ok=True)
+                shm_model = shm_dir / self.model_path.name
+                if not shm_model.is_file() or shm_model.stat().st_size != self.model_path.stat().st_size:
+                    print(f"[RAM Staging] ⚡ Mirroring {self.model_path.name} to /dev/shm for zero cold load...")
+                    shutil.copy2(str(self.model_path), str(shm_model))
+                self.model_path = shm_model
+                print(f"[RAM Staging] ✅ ExecuTorch model active from RAM: {self.model_path}")
+            except Exception as e:
+                print(f"[RAM Staging] /dev/shm staging skipped: {e}")
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
@@ -544,62 +504,7 @@ class LlamaAdvisoryEngine:
 
         prompt = self.build_compact_prompt(category, detections, image_shape, rule_eval)
 
-        # -------------------------------------------------------------
-        # Path A: Persistent Server (llama-server or Ollama)
-        # -------------------------------------------------------------
-        if self.backend == "server":
-            # Auto-detect if target is Ollama (port 11434) or llama-server (port 8080)
-            is_ollama = "11434" in self.server_url or "/api/generate" in self.server_url
-            if is_ollama:
-                payload = json.dumps({
-                    "model": "llama3.2:1b",
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "num_predict": self.max_tokens,
-                        "temperature": self.temperature,
-                    },
-                }).encode("utf-8")
-            else:
-                payload = json.dumps({
-                    "prompt": prompt,
-                    "n_predict": self.max_tokens,
-                    "temperature": self.temperature,
-                    "stop": ["<|eot_id|>", "\n\n\n"],
-                }).encode("utf-8")
-
-            req = urllib.request.Request(
-                self.server_url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    resp_json = json.loads(resp.read().decode("utf-8"))
-                    if is_ollama:
-                        content = resp_json.get("response", "").strip()
-                    else:
-                        content = resp_json.get("content", "").strip()
-                    if content:
-                        severity = rule_eval.get("severity", "CRITICAL")
-                        if not content.startswith("- Severity:") and not content.startswith("• Severity:"):
-                            if content.startswith("- Assessment:") or content.startswith("Assessment:"):
-                                content = f"- Severity: {severity}\n" + content
-                            else:
-                                content = f"- Severity: {severity}\n- Assessment: " + content.lstrip("- ")
-                        if "- Action:" not in content and "Action:" not in content:
-                            content = content.rstrip().rstrip(".") + f".\n- Action: {rule_eval.get('rule_action', 'Quarantine part and inspect tooling.')}"
-                        return content
-            except Exception as e:
-                print(f"[Warn] Persistent server query failed ({e}). Falling back to local runner...")
-                if self.runner_path.is_file() and self.model_path.is_file():
-                    pass # Continue down to Path B ExecuTorch
-                else:
-                    return f"[Rule Fallback] {rule_eval['rule_action']}"
-
-        # -------------------------------------------------------------
-        # Path B: ExecuTorch CLI runner
-        # -------------------------------------------------------------
+        # ExecuTorch CLI runner
         cmd = [
             str(self.runner_path),
             f"--model_path={self.model_path}",
@@ -748,15 +653,9 @@ def parse_args():
     # Llama Optimization Flags
     parser.add_argument(
         "--llama-backend",
-        choices=["auto", "server", "executorch"],
-        default="auto",
-        help="Llama engine backend. 'auto' connects to in-memory persistent daemon if running (0s cold load), else ExecuTorch.",
-    )
-    parser.add_argument(
-        "--llama-server-url",
-        type=str,
-        default="http://127.0.0.1:8080/completion",
-        help="URL of persistent llama-server / llama.cpp completion endpoint",
+        choices=["executorch"],
+        default="executorch",
+        help="Llama engine backend (Meta ExecuTorch ARM64 runtime).",
     )
     parser.add_argument(
         "--llama-model",

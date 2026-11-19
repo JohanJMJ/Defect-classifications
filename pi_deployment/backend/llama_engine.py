@@ -1,7 +1,7 @@
 """
 Llama AI Advisory Engine for Industrial QC
 Provides intelligent defect severity assessment and actionable recommendations.
-Supports ExecuTorch (ARM64 CPU), llama-server / Ollama HTTP, and PC Simulation Mode.
+Powered by Meta ExecuTorch (ARM64 CPU with Arm KleidiAI / XNNPACK) & PC Simulation Mode.
 """
 
 import json
@@ -10,8 +10,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
-import urllib.request
-import urllib.error
 
 
 def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
@@ -61,24 +59,6 @@ def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
     except Exception as e:
         print(f"[RAM Disk] Staging to /dev/shm skipped: {e}")
         return src_path, False
-
-
-def check_persistent_server(url="http://127.0.0.1:8080"):
-    """Checks if a persistent llama-server or Ollama is listening for requests."""
-    try:
-        health_url = url.rstrip("/") + "/health"
-        req = urllib.request.Request(health_url, headers={"User-Agent": "QC-Advisory-Probe"})
-        with urllib.request.urlopen(req, timeout=0.4) as resp:
-            return resp.status == 200
-    except Exception:
-        pass
-    try:
-        base_url = url.rstrip("/")
-        req = urllib.request.Request(base_url, headers={"User-Agent": "QC-Advisory-Probe"})
-        with urllib.request.urlopen(req, timeout=0.4) as resp:
-            return resp.status in (200, 301, 302, 404)
-    except Exception:
-        return False
 
 
 def auto_discover_llama():
@@ -238,16 +218,9 @@ class LlamaAdvisoryEngine:
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
 
-        # Determine backend
-        self.requested_backend = backend
+        # Determine backend: Primary is Meta ExecuTorch on Arm64 CPU
         if backend == "auto":
-            # 1. Check if persistent in-memory server is listening (0s cold load, ~2s generation)
-            server_host = self.server_url.rsplit("/", 1)[0]
-            if check_persistent_server(server_host):
-                self.backend = "server"
-                print(f"[LlamaAdvisoryEngine] ⚡ Connected to Persistent In-Memory Server at {self.server_url} (0s cold load!)")
-            # 2. Check if ExecuTorch binary & model are available
-            elif (
+            if (
                 self.runner_path
                 and self.runner_path.is_file()
                 and os.access(self.runner_path, os.X_OK)
@@ -255,11 +228,11 @@ class LlamaAdvisoryEngine:
                 and self.model_path.is_file()
             ):
                 self.backend = "executorch"
-                print(f"[LlamaAdvisoryEngine] Found ExecuTorch at: {self.runner_path.parent}")
-                print(f"[LlamaAdvisoryEngine] Model: {self.model_path.name}")
+                print(f"[LlamaAdvisoryEngine] Arm ExecuTorch Runtime Active: {self.runner_path.parent}")
+                print(f"[LlamaAdvisoryEngine] Model (.pte): {self.model_path.name}")
             else:
                 self.backend = "simulation"
-                print("[LlamaAdvisoryEngine] ExecuTorch model files not fully present. Using Fast-Path Rule Advisory mode.")
+                print("[LlamaAdvisoryEngine] ExecuTorch model files not present. Using Fast-Path Rule Advisory mode (Simulation).")
         else:
             self.backend = backend
 
@@ -280,7 +253,7 @@ class LlamaAdvisoryEngine:
             elif self.backend == "executorch":
                 print(f"[LlamaAdvisoryEngine] ExecuTorch active from Disk: {self.model_path}")
 
-        print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend} (RAM Resident: {self.is_ram_disk or self.backend == 'server'})")
+        print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend} (RAM Resident: {self.is_ram_disk})")
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
@@ -326,28 +299,14 @@ class LlamaAdvisoryEngine:
                 12.5
             )
 
-        # Dynamic hot-swap: if auto mode and daemon wasn't ready at boot, check if daemon came online
-        if getattr(self, "requested_backend", "") == "auto" and self.backend != "server":
-            server_host = self.server_url.rsplit("/", 1)[0]
-            if check_persistent_server(server_host):
-                self.backend = "server"
-                print(f"[LlamaAdvisoryEngine] ⚡ Hot-swapped to Persistent In-Memory Daemon at {self.server_url} (0s cold load!)")
-
-        if self.backend == "simulation":
-            advisory, latency = self._generate_simulation(category, detections, image_shape, rule_eval)
-            return advisory, latency
-
-        if self.backend == "server":
-            advisory = self._generate_server(category, detections, image_shape, rule_eval)
-            latency = (time.perf_counter() - t0) * 1000.0
-            return advisory, round(latency, 2)
-
         if self.backend == "executorch":
             advisory = self._generate_executorch(category, detections, image_shape, rule_eval)
             latency = (time.perf_counter() - t0) * 1000.0
             return advisory, round(latency, 2)
 
-        return rule_eval.get("rule_action", "No action specified."), 5.0
+        # Simulation Mode (PC development & testing)
+        advisory, latency = self._generate_simulation(category, detections, image_shape, rule_eval)
+        return advisory, latency
 
     def _generate_simulation(self, category, detections, image_shape, rule_eval):
         """Intelligent contextual simulation for PC testing."""
@@ -376,64 +335,6 @@ class LlamaAdvisoryEngine:
         )
         sim_latency = round(45.0 + (len(category) * 3.5), 1)
         return advisory_text, sim_latency
-
-    def _generate_server(self, category, detections, image_shape, rule_eval):
-        prompt = self.build_compact_prompt(category, detections, image_shape, rule_eval)
-        payload = json.dumps({
-            "prompt": prompt,
-            "n_predict": self.max_tokens,
-            "temperature": self.temperature,
-            "stop": ["<|eot_id|>", "<|end_of_text|>", "\n\n\n"],
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            self.server_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                content = data.get("content", "").strip()
-                if not content and "response" in data:
-                    content = data.get("response", "").strip()
-
-                # Print telemetry if llama.cpp server provides timings
-                timings = data.get("timings", {})
-                if timings:
-                    predicted_toks = timings.get("predicted_n", 0)
-                    predicted_per_sec = timings.get("predicted_per_second", 0)
-                    if predicted_toks and predicted_per_sec:
-                        print(f"[Persistent Daemon] {predicted_toks} tokens @ {predicted_per_sec:.1f} tok/s")
-
-                if content:
-                    severity = rule_eval.get("severity", "CRITICAL")
-                    cat_key = category.lower()
-                    kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
-                    if not content.startswith("- Severity:") and not content.startswith("• Severity:"):
-                        if content.startswith("- Assessment:") or content.startswith("Assessment:"):
-                            content = f"- Severity: {severity}\n" + content
-                        else:
-                            content = f"- Severity: {severity}\n- Assessment: " + content.lstrip("- ")
-                    if "- Action:" not in content and "Action:" not in content:
-                        fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
-                        content = content.rstrip().rstrip(".") + f".\n- Action: {fallback_act}"
-                    return content
-                raise ValueError("Empty response received from daemon server.")
-        except Exception as e:
-            print(f"[Persistent Daemon Warn] Daemon query failed ({e}). Falling back to local runner...")
-            if (
-                self.runner_path
-                and self.runner_path.is_file()
-                and self.model_path
-                and self.model_path.is_file()
-            ):
-                return self._generate_executorch(category, detections, image_shape, rule_eval)
-            return (
-                f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
-                f"• Assessment: Fast-Path Rule fallback (Daemon error: {e})\n"
-                f"• Action: {rule_eval.get('rule_action', 'Inspect component manually.')}"
-            )
 
     def _generate_executorch(self, category, detections, image_shape, rule_eval):
         prompt = self.build_compact_prompt(category, detections, image_shape, rule_eval)
