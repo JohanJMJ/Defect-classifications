@@ -27,6 +27,14 @@ except ImportError:
 
 
 CLASS_NAMES = {0: "anomaly"}
+STEEL_CLASSES = {
+    0: "crazing",
+    1: "inclusion",
+    2: "patches",
+    3: "pitted_surface",
+    4: "rolled-in_scale",
+    5: "scratches",
+}
 MASK_COLOR = (0, 0, 255)
 BOX_COLOR = (0, 165, 255)
 TEXT_COLOR = (255, 255, 255)
@@ -119,13 +127,24 @@ class HailoVisionEngine:
         if self.current_model_name == model_name and self.active_segmentor is not None:
             return True
 
-        hef_filename = f"{model_name}_hailo8.hef" if not model_name.endswith(".hef") else model_name
-        hef_path = self.models_dir / hef_filename
-        if not hef_path.is_file():
-            # Try finding direct name
-            hef_path = self.models_dir / model_name
-            if not hef_path.is_file():
-                raise FileNotFoundError(f"HEF model file not found: {hef_path}")
+        # Check direct and alias paths
+        cand_paths = [
+            self.models_dir / f"{model_name}_hailo8.hef",
+            self.models_dir / f"{model_name}.hef",
+            self.models_dir / model_name,
+        ]
+        if model_name.lower() in ["steel", "steel_defect", "steel_defects"]:
+            cand_paths.insert(0, self.models_dir / "steel_defects_hailo8.hef")
+            cand_paths.insert(1, self.models_dir / "steel_defects.hef")
+
+        hef_path = None
+        for p in cand_paths:
+            if p.is_file():
+                hef_path = p
+                break
+
+        if not hef_path:
+            raise FileNotFoundError(f"HEF model file not found for category '{model_name}' in {self.models_dir}")
 
         if self.active_segmentor is not None:
             self.active_segmentor.close()
@@ -373,6 +392,92 @@ class _NativeHailoSegmentor:
         return detections, round(latency_ms, 2)
 
     def _decode(self, outputs, pad_info, conf_thresh, iou_thresh):
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        # Check if Detection model (6 outputs: reg + cls at 3 scales, no prototype mask)
+        is_detection = (len(outputs) == 6 or outputs[-1].ndim != 4 or outputs[-1].shape[-1] != 32)
+
+        if is_detection:
+            reg_tensors = sorted([o for o in outputs if o.shape[-1] == 64], key=lambda x: x.shape[1], reverse=True)
+            cls_tensors = sorted([o for o in outputs if o.shape[-1] != 64 and o.shape[-1] != 32], key=lambda x: x.shape[1], reverse=True)
+
+            all_reg = np.concatenate([r[0].reshape(-1, 64) for r in reg_tensors], axis=0)
+            all_cls = np.concatenate([c[0].reshape(-1, c.shape[-1]) for c in cls_tensors], axis=0)
+
+            # Apply sigmoid if raw logits
+            if np.max(all_cls) > 1.0 or np.min(all_cls) < 0.0:
+                all_cls = 1.0 / (1.0 + np.exp(-np.clip(all_cls, -30.0, 30.0)))
+
+            best_cls_ids = np.argmax(all_cls, axis=1)
+            best_scores = np.max(all_cls, axis=1)
+
+            candidate_indices = np.where(best_scores >= conf_thresh)[0]
+            if len(candidate_indices) == 0:
+                return []
+
+            cand_scores = best_scores[candidate_indices]
+            cand_classes = best_cls_ids[candidate_indices]
+            cand_reg = all_reg[candidate_indices]
+            cand_anchors = self.anchors[candidate_indices]
+            cand_strides = self.strides[candidate_indices]
+
+            dists = dfl_decode(cand_reg)
+            x1 = (cand_anchors[:, 0] - dists[:, 0]) * cand_strides[:, 0]
+            y1 = (cand_anchors[:, 1] - dists[:, 1]) * cand_strides[:, 0]
+            x2 = (cand_anchors[:, 0] + dists[:, 2]) * cand_strides[:, 0]
+            y2 = (cand_anchors[:, 1] + dists[:, 3]) * cand_strides[:, 0]
+
+            boxes_for_nms = []
+            for i in range(len(candidate_indices)):
+                boxes_for_nms.append([float(x1[i]), float(y1[i]), float(x2[i] - x1[i]), float(y2[i] - y1[i])])
+
+            indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), conf_thresh, iou_thresh)
+            if len(indices) == 0:
+                return []
+
+            keep_indices = indices.flatten() if isinstance(indices, np.ndarray) else [
+                i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
+            ]
+
+            detections = []
+            for ki in keep_indices:
+                conf_val = float(cand_scores[ki])
+                cls_id = int(cand_classes[ki])
+                label = STEEL_CLASSES.get(cls_id, f"steel_defect_{cls_id}")
+
+                bx1, by1 = float(x1[ki]), float(y1[ki])
+                bx2, by2 = float(x2[ki]), float(y2[ki])
+
+                orig_x1 = float(max(0.0, min(orig_w, (bx1 - pad_left) / scale)))
+                orig_y1 = float(max(0.0, min(orig_h, (by1 - pad_top) / scale)))
+                orig_x2 = float(max(0.0, min(orig_w, (bx2 - pad_left) / scale)))
+                orig_y2 = float(max(0.0, min(orig_h, (by2 - pad_top) / scale)))
+
+                ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+                ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+                final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                if ix2 > ix1 and iy2 > iy1:
+                    final_mask[iy1:iy2, ix1:ix2] = 1
+
+                area_px = float((ix2 - ix1) * (iy2 - iy1))
+                polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+
+                detections.append({
+                    "label": label,
+                    "confidence": round(conf_val, 4),
+                    "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                    "mask_polygon_points": 4,
+                    "polygon": polygon,
+                    "mask_area_px": round(area_px, 1),
+                    "mask_array": final_mask,
+                })
+            return detections
+
+        # Segmentation model (with prototype mask)
         k = len(outputs) - 1
         proto = outputs[-1][0]
 
@@ -417,11 +522,6 @@ class _NativeHailoSegmentor:
         keep_indices = indices.flatten() if isinstance(indices, np.ndarray) else [
             i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
         ]
-
-        scale = pad_info["scale"]
-        pad_left = pad_info["pad_left"]
-        pad_top = pad_info["pad_top"]
-        orig_h, orig_w = pad_info["orig_shape"]
 
         detections = []
         for ki in keep_indices:

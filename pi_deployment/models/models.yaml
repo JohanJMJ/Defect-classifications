@@ -7,6 +7,18 @@ classes:
   0: anomaly
 
 models:
+  steel_defects:
+    filename: steel_defects_hailo8.hef
+    category: steel_defects
+    task: detect
+    description: Steel surface defect detection (crazing, inclusion, patches, pitted surface, rolled-in scale, scratches)
+    classes:
+      0: crazing
+      1: inclusion
+      2: patches
+      3: pitted_surface
+      4: rolled-in_scale
+      5: scratches
   bottle:
     filename: bottle_hailo8.hef
     category: bottle

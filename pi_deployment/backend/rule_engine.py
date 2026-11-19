@@ -42,7 +42,9 @@ def evaluate_rules(detections, image_shape, category="general"):
     if total_mask_pct >= HIGH_SEVERITY_MASK_PCT:
         severity = "CRITICAL"
         verdict = "REJECT"
-        if "bottle" in cat_lower:
+        if "steel" in cat_lower:
+            action = f"Severe steel surface defect ({total_mask_pct:.1f}% area). Quarantine coil/sheet, halt rolling mill, and inspect work rolls."
+        elif "bottle" in cat_lower:
             action = f"Severe containment rupture or contamination ({total_mask_pct:.1f}%). Reject batch and isolate filler unit."
         elif "grid" in cat_lower:
             action = f"Severe mesh/strut structural fracture ({total_mask_pct:.1f}%). Reject grid and inspect stamping die."

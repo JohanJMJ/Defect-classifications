@@ -26,6 +26,7 @@ pi_deployment/
 │   ├── templates/               # Offline HTML templates (base, index, history)
 │   └── static/                  # Responsive CSS, icons, and async JavaScript polling
 ├── models/                      # High-Accuracy Hailo-8 HEF executables (26 TOPS)
+│   ├── steel_defects_hailo8.hef # Steel defect detection (YOLO11m, 6 classes, 29.9 MB)
 │   ├── bottle_hailo8.hef        # Bottle defect segmentation (21.7 MB)
 │   ├── grid_hailo8.hef          # Grid defect segmentation (21.4 MB)
 │   ├── tile_hailo8.hef          # Tile defect segmentation (21.6 MB)
@@ -75,13 +76,14 @@ chmod +x setup_pi.sh run_inference.sh inference.py evaluate_hef.py run_eval.sh
 ./run_inference.sh
 
 # Select any model by category name (auto-loads matching sample images):
+./run_inference.sh steel_defects
 ./run_inference.sh bottle
 ./run_inference.sh grid
 ./run_inference.sh tile
 
 # Or use standard --model / -m flags:
-./run_inference.sh --model bottle
-python3 inference.py --model grid
+./run_inference.sh --model steel_defects
+python3 inference.py --model steel_defects
 ```
 
 ---

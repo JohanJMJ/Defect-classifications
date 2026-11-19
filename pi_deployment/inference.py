@@ -37,6 +37,14 @@ except ImportError:
 
 # Class labels (matching metadata.yaml)
 CLASS_NAMES = {0: "anomaly"}
+STEEL_CLASSES = {
+    0: "crazing",
+    1: "inclusion",
+    2: "patches",
+    3: "pitted_surface",
+    4: "rolled-in_scale",
+    5: "scratches",
+}
 
 # Colors for visualization (BGR)
 MASK_COLOR = (0, 0, 255)      # Red for defect overlay
@@ -151,14 +159,92 @@ class HailoYOLOSegmentor:
 
     def decode_outputs(self, outputs, pad_info, conf_thresh=0.25, iou_thresh=0.50):
         """
-        Pure NumPy post-processing for YOLO11 segmentation.
+        Pure NumPy post-processing for YOLO11 segmentation and detection.
         Zero PyTorch required.
         """
-        # Outputs contain:
-        # [0:k:3] -> reg_maps (64 channels per scale)
-        # [1:k:3] -> cls_maps (1 channel per scale, sigmoid applied)
-        # [2:k:3] -> cof_maps (32 channels per scale)
-        # [-1]    -> prototype masks (1, 160, 160, 32)
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        # Check if Detection model (6 outputs: reg + cls at 3 scales, no prototype mask)
+        is_detection = (len(outputs) == 6 or outputs[-1].ndim != 4 or outputs[-1].shape[-1] != 32)
+
+        if is_detection:
+            reg_tensors = sorted([o for o in outputs if o.shape[-1] == 64], key=lambda x: x.shape[1], reverse=True)
+            cls_tensors = sorted([o for o in outputs if o.shape[-1] != 64 and o.shape[-1] != 32], key=lambda x: x.shape[1], reverse=True)
+
+            all_reg = np.concatenate([r[0].reshape(-1, 64) for r in reg_tensors], axis=0)
+            all_cls = np.concatenate([c[0].reshape(-1, c.shape[-1]) for c in cls_tensors], axis=0)
+
+            if np.max(all_cls) > 1.0 or np.min(all_cls) < 0.0:
+                all_cls = 1.0 / (1.0 + np.exp(-np.clip(all_cls, -30.0, 30.0)))
+
+            best_cls_ids = np.argmax(all_cls, axis=1)
+            best_scores = np.max(all_cls, axis=1)
+
+            candidate_indices = np.where(best_scores >= conf_thresh)[0]
+            if len(candidate_indices) == 0:
+                return []
+
+            cand_scores = best_scores[candidate_indices]
+            cand_classes = best_cls_ids[candidate_indices]
+            cand_reg = all_reg[candidate_indices]
+            cand_anchors = self.anchors[candidate_indices]
+            cand_strides = self.strides[candidate_indices]
+
+            dists = dfl_decode(cand_reg)
+            x1 = (cand_anchors[:, 0] - dists[:, 0]) * cand_strides[:, 0]
+            y1 = (cand_anchors[:, 1] - dists[:, 1]) * cand_strides[:, 0]
+            x2 = (cand_anchors[:, 0] + dists[:, 2]) * cand_strides[:, 0]
+            y2 = (cand_anchors[:, 1] + dists[:, 3]) * cand_strides[:, 0]
+
+            boxes_for_nms = []
+            for i in range(len(candidate_indices)):
+                boxes_for_nms.append([float(x1[i]), float(y1[i]), float(x2[i] - x1[i]), float(y2[i] - y1[i])])
+
+            indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), float(conf_thresh), float(iou_thresh))
+            if len(indices) == 0:
+                return []
+
+            keep_indices = indices.flatten() if isinstance(indices, np.ndarray) else [
+                i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
+            ]
+
+            detections = []
+            for ki in keep_indices:
+                conf_val = float(cand_scores[ki])
+                cls_id = int(cand_classes[ki])
+                label = STEEL_CLASSES.get(cls_id, f"steel_defect_{cls_id}")
+
+                bx1, by1 = float(x1[ki]), float(y1[ki])
+                bx2, by2 = float(x2[ki]), float(y2[ki])
+
+                orig_x1 = float(max(0.0, min(orig_w, (bx1 - pad_left) / scale)))
+                orig_y1 = float(max(0.0, min(orig_h, (by1 - pad_top) / scale)))
+                orig_x2 = float(max(0.0, min(orig_w, (bx2 - pad_left) / scale)))
+                orig_y2 = float(max(0.0, min(orig_h, (by2 - pad_top) / scale)))
+
+                ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+                ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+                final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                if ix2 > ix1 and iy2 > iy1:
+                    final_mask[iy1:iy2, ix1:ix2] = 1
+
+                area_px = float((ix2 - ix1) * (iy2 - iy1))
+
+                detections.append({
+                    "label": label,
+                    "confidence": round(conf_val, 4),
+                    "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                    "mask_polygon_points": 4,
+                    "mask_area_px": round(area_px, 1),
+                    "mask_array": final_mask,
+                })
+            return detections
+
+        # Segmentation model (with prototype mask)
         k = len(outputs) - 1
         proto = outputs[-1][0]  # shape (160, 160, 32)
 
@@ -443,8 +529,13 @@ def resolve_model_path(model_arg, models_dir):
         return cand_h8l.resolve()
 
     # 3. Lookup in available models alias dict
-    avail = get_available_models(models_dir)
     clean_arg = base_name.replace(".hef", "").strip().lower()
+    if clean_arg in ["steel", "steel_defect", "steel_defects"]:
+        steel_p = models_dir / "steel_defects_hailo8.hef"
+        if steel_p.is_file():
+            return steel_p.resolve()
+
+    avail = get_available_models(models_dir)
     if clean_arg in avail:
         return avail[clean_arg].resolve()
 
@@ -453,20 +544,20 @@ def resolve_model_path(model_arg, models_dir):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Native HailoRT YOLO segmentation inference (No PyTorch, No Ultralytics)",
+        description="Native HailoRT YOLO segmentation and detection inference (No PyTorch, No Ultralytics)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
         "-m", "--model",
         type=str,
         default=None,
-        help="Model name, category (e.g. 'bottle', 'tile', 'grid'), or path to .hef model"
+        help="Model name, category (e.g. 'steel_defects', 'tile', 'bottle', 'grid'), or path to .hef model"
     )
     parser.add_argument(
         "-c", "--category",
         type=str,
         default=None,
-        help="Alias for --model (e.g. bottle, grid, tile)"
+        help="Alias for --model (e.g. steel_defects, tile, bottle, grid)"
     )
     parser.add_argument(
         "-l", "--list-models",

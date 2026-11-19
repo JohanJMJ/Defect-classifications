@@ -418,6 +418,14 @@ def evaluate_qc_rules(detections, image_shape):
 # Industrial Knowledge Base (mirrors backend/llama_engine.py INDUSTRIAL_KB)
 # ---------------------------------------------------------------------
 INDUSTRIAL_KB = {
+    "steel_defects": {"material": "Hot/Cold-Rolled Carbon Steel Sheet & Strip",
+                      "failure_modes": "Crazing micro-cracks, non-metallic inclusions, surface patches, pitting corrosion, rolled-in oxide scale, longitudinal scratches",
+                      "risk_threshold": "Surface cracks and rolled-in scale cause catastrophic tensile fracture under stamping loads (ASTM A1008/A568).",
+                      "tooling_capa": "Inspect continuous caster mold level, check roughing stand roll wear, verify descaler spray pressure (>15 MPa), and clean coil guide rollers."},
+    "steel":         {"material": "Hot/Cold-Rolled Carbon Steel Sheet & Strip",
+                      "failure_modes": "Crazing micro-cracks, non-metallic inclusions, surface patches, pitting corrosion, rolled-in oxide scale, longitudinal scratches",
+                      "risk_threshold": "Surface cracks and rolled-in scale cause catastrophic tensile fracture under stamping loads (ASTM A1008/A568).",
+                      "tooling_capa": "Inspect continuous caster mold level, check roughing stand roll wear, verify descaler spray pressure (>15 MPa), and clean coil guide rollers."},
     "tile":       {"material": "Ceramic / Porcelain Flooring",
                    "failure_modes": "Mechanical press stress cracks, thermal firing fractures, conveyor oil leaks, glue overflow",
                    "risk_threshold": "Cracks >3% cause catastrophic failure under 1500N floor load (ISO 10545-4).",
@@ -516,6 +524,10 @@ class LlamaAdvisoryEngine:
 
     # Category-specific 1-shot examples — mirrors llama_engine.py
     _CATEGORY_EXAMPLES = {
+        "steel_defects": ("Rolled-in scale induces fracture propagation during deep drawing stamping.",
+                          "Quarantine hot coil, check high-pressure descaling water headers."),
+        "steel":         ("Rolled-in scale induces fracture propagation during deep drawing stamping.",
+                          "Quarantine hot coil, check high-pressure descaling water headers."),
         "tile":       ("Stress crack propagates under 1500N floor load per ISO 10545.",
                        "Stop press, inspect Kiln Zone 3 cooling ramp."),
         "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",

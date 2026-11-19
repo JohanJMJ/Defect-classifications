@@ -171,7 +171,7 @@ def api_samples(category):
                 samples.append({
                     "name": f.name,
                     "url": f"/sample_images/{category}/{f.name}",
-                    "is_defective": "defective" in f.name.lower() or "broken" in f.name.lower(),
+                    "is_defective": not any(kw in f.name.lower() for kw in ["good", "normal", "pass", "clean"]),
                 })
     return jsonify({"success": True, "category": category, "samples": samples})
 
