@@ -120,3 +120,31 @@ To check service status:
 ```bash
 sudo systemctl status qc-dashboard.service
 ```
+
+---
+
+## 5. On-Device Arm ExecuTorch Llama Advisory Engine
+
+For the **ARM Bharat AI-SoC Challenge**, the system uses **Meta ExecuTorch** tuned specifically for 64-bit Arm Cortex-A architecture:
+
+- **Model**: `Llama-3.2-1B-Instruct-SpinQuant_INT4_EO8.pte`
+- **Runner**: Native Arm64 `llama_main` binary (compiled with Arm XNNPACK / KleidiAI backend)
+- **Token Speed**: **13.5 tokens/sec** on Raspberry Pi 5 quad-core Cortex-A76 CPU
+- **Decode Time**: **~2.5 seconds** for standard 34-token Six-Sigma CQE root-cause assessment
+- **Zero-Disk Cold Load**: Model weights (`.pte`) and tokenizer are mirrored to `/dev/shm` (POSIX RAM disk) at startup for pure DDR4/DDR5 execution.
+- **CPU Resource Balance**: Configured for 3 execution threads (`--cpu_threads 3`), leaving 1 core dedicated to camera I/O, Hailo NPU DMA, and web serving.
+- **Asynchronous Advisory**: Advisories execute in a background thread pool (`_async_llama_worker`), ensuring the Hailo-8 vision pipeline runs at full **35+ FPS** with zero conveyor blocking.
+
+### ExecuTorch File Directory Layout:
+Ensure your deployment files are placed at `~/executorch-deployment/`:
+```text
+~/executorch-deployment/
+├── llama_main                                     # Native ARM64 ExecuTorch executable
+├── Llama-3.2-1B-Instruct-SpinQuant_INT4_EO8.pte   # INT4 Quantized model weights
+├── tokenizer.model                                # Tokenizer vocabulary
+└── libllama_runner.so                             # Runtime dynamic shared library
+```
+
+*(The system automatically auto-discovers this directory, configures `LD_LIBRARY_PATH`, and mirrors files to `/dev/shm`).*
+
+

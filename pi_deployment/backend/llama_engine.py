@@ -1,16 +1,64 @@
 """
 Llama AI Advisory Engine for Industrial QC
 Provides intelligent defect severity assessment and actionable recommendations.
-Supports ExecuTorch (ARM64 CPU), llama-server / Ollama HTTP, and PC Simulation Mode.
+Powered by Meta ExecuTorch (ARM64 CPU with Arm KleidiAI / XNNPACK) & PC Simulation Mode.
 """
 
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
-import urllib.request
-import urllib.error
+
+
+def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
+    """
+    Mirrors a model or tokenizer file to Linux /dev/shm (POSIX RAM disk).
+    Returns (effective_path, is_in_ram).
+    If /dev/shm is unavailable, not writable, or has insufficient free memory, returns (src_path, False).
+    """
+    if not src_path:
+        return src_path, False
+    src_path = Path(src_path)
+    if not src_path.is_file():
+        return src_path, False
+
+    shm_root = Path("/dev/shm")
+    if not shm_root.is_dir() or not os.access(str(shm_root), os.W_OK):
+        return src_path, False
+
+    try:
+        dest_dir = shm_root / subfolder
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / src_path.name
+
+        src_size = src_path.stat().st_size
+
+        # Check if already cached in RAM with matching size
+        if dest_path.is_file() and dest_path.stat().st_size == src_size:
+            print(f"[RAM Disk] Model file already warm in RAM: {dest_path} ({src_size / (1024*1024):.1f} MB)")
+            return dest_path, True
+
+        # Check available RAM space (require file size + 100MB margin)
+        usage = shutil.disk_usage(str(shm_root))
+        if usage.free < (src_size + 100 * 1024 * 1024):
+            print(
+                f"[RAM Disk] Insufficient free space in /dev/shm ({usage.free / (1024*1024):.1f} MB free, "
+                f"need {src_size / (1024*1024):.1f} MB). Keeping on disk."
+            )
+            return src_path, False
+
+        print(f"[RAM Disk] ⚡ Loading {src_path.name} ({src_size / (1024*1024):.1f} MB) into RAM disk (/dev/shm)...")
+        t0 = time.perf_counter()
+        shutil.copy2(str(src_path), str(dest_path))
+        dt = (time.perf_counter() - t0) * 1000.0
+        print(f"[RAM Disk] ✅ Successfully staged in RAM in {dt:.1f}ms! Direct DDR4/DDR5 execution enabled.")
+        return dest_path, True
+
+    except Exception as e:
+        print(f"[RAM Disk] Staging to /dev/shm skipped: {e}")
+        return src_path, False
 
 
 def auto_discover_llama():
@@ -158,7 +206,7 @@ class LlamaAdvisoryEngine:
         model_path=None,
         tokenizer_path=None,
         server_url="http://127.0.0.1:8080/completion",
-        max_tokens=125,
+        max_tokens=48,
         temperature=0.0,
     ):
         disc_runner, disc_model, disc_tok = auto_discover_llama()
@@ -170,7 +218,7 @@ class LlamaAdvisoryEngine:
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
 
-        # Determine backend
+        # Determine backend: Primary is Meta ExecuTorch on Arm64 CPU
         if backend == "auto":
             if (
                 self.runner_path
@@ -180,52 +228,108 @@ class LlamaAdvisoryEngine:
                 and self.model_path.is_file()
             ):
                 self.backend = "executorch"
-                print(f"[LlamaAdvisoryEngine] Found ExecuTorch at: {self.runner_path.parent}")
-                print(f"[LlamaAdvisoryEngine] Model: {self.model_path.name}")
+                print(f"[LlamaAdvisoryEngine] Arm ExecuTorch Runtime Active: {self.runner_path.parent}")
+                print(f"[LlamaAdvisoryEngine] Model (.pte): {self.model_path.name}")
             else:
                 self.backend = "simulation"
-                print("[LlamaAdvisoryEngine] ExecuTorch model files not fully present. Using Fast-Path Rule Advisory mode.")
+                print("[LlamaAdvisoryEngine] ExecuTorch model files not present. Using Fast-Path Rule Advisory mode (Simulation).")
         else:
             self.backend = backend
 
-        print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend}")
+        # Fast-Path RAM Disk Staging: Mirror ExecuTorch model to Linux /dev/shm for zero-disk cold load
+        self.is_ram_disk = False
+        self.original_model_path = self.model_path
+        if self.model_path and self.model_path.is_file():
+            ram_model, model_in_ram = mirror_to_ram_disk(self.model_path)
+            self.model_path = ram_model
+            self.is_ram_disk = model_in_ram
+
+            if self.tokenizer_path and self.tokenizer_path.is_file():
+                ram_tok, _ = mirror_to_ram_disk(self.tokenizer_path)
+                self.tokenizer_path = ram_tok
+
+            if self.is_ram_disk and self.backend == "executorch":
+                print(f"[LlamaAdvisoryEngine] 🚀 ExecuTorch active from RAM disk (/dev/shm): {self.model_path.name}")
+            elif self.backend == "executorch":
+                print(f"[LlamaAdvisoryEngine] ExecuTorch active from Disk: {self.model_path}")
+
+        print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend} (RAM Resident: {self.is_ram_disk})")
+
+    # Category-specific 1-shot examples: (assessment sentence, action sentence)
+    # Each anchors the model's vocabulary to the right industrial domain.
+    _CATEGORY_EXAMPLES = {
+        "tile":       ("Stress crack propagates under 1500N floor load per ISO 10545.",
+                       "Stop press, inspect Kiln Zone 3 cooling ramp."),
+        "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",
+                       "Reject lot, check blow-mold clamp alignment."),
+        "cable":      ("Exposed copper conductor causes dielectric breakdown fire risk.",
+                       "Check wire-stripping blade clearance immediately."),
+        "capsule":    ("Cap split compromises active ingredient dosage integrity.",
+                       "Check capsule closing station pin depth."),
+        "carpet":     ("Thread tear propagates under foot traffic load.",
+                       "Inspect tufting needle sharpness, check yarn tension."),
+        "grid":       ("Bent strut reduces structural shear resistance per spec.",
+                       "Divert part, inspect stamping die clearance."),
+        "hazelnut":   ("Shell crack permits aflatoxin mold growth, fails FDA standard.",
+                       "Calibrate optical color sorter, check reject nozzle."),
+        "leather":    ("Grain puncture ruptures under seat upholstery tension load.",
+                       "Inspect CNC cutting blade sharpness, clean feed rollers."),
+        "metal_nut":  ("Stripped thread causes galling and joint torque loss.",
+                       "Inspect thread tapping tool wear, check punch concentricity."),
+        "pill":       ("Tablet capping exposes formulation to rapid degradation.",
+                       "Check punch tooling wear, verify pre-compression force."),
+        "screw":      ("Damaged drive prevents robotic torque during automated assembly.",
+                       "Inspect thread-rolling dies, calibrate heading punch alignment."),
+        "toothbrush": ("Loose bristle presents choking risk during hygiene use.",
+                       "Inspect tufting stapler, verify anchor wire tension."),
+        "transistor": ("Bent lead blocks PCB insertion and risks solder short.",
+                       "Inspect lead trim-form die, check vacuum pickup nozzle."),
+        "wood":       ("Deep gouge ruins decorative finish grade, reduces bending strength.",
+                       "Check planer blade sharpness, inspect sanding belt grit."),
+        "zipper":     ("Missing tooth prevents interlock, causing separation under lateral pull.",
+                       "Inspect tooth injection mold cavity, check chain guide."),
+    }
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
-        h, w = image_shape[:2]
+        """
+        Builds a KB-enriched 1-shot prompt (~85 tokens) with assistant pre-filling.
+        Injects failure_modes and risk_threshold so the model produces domain-specific,
+        failure-mode-aware assessments rather than generic sentences.
+        """
         cat_key = category.lower()
         kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
 
         total_pct = rule_eval.get("total_mask_pct", 0)
         verdict = rule_eval.get("verdict", "REJECT")
         severity = rule_eval.get("severity", "CRITICAL")
+        conf_pct = rule_eval.get("max_confidence", 0) * 100
 
-        det_summary = []
-        for i, d in enumerate(detections, 1):
-            pct = (d.get("mask_area_px", 0) / (h * w)) * 100.0 if (h * w) > 0 else 0
-            lbl = d.get('label', 'defect')
-            det_summary.append(
-                f"{lbl} #{i} ({pct:.1f}% area, {d.get('confidence', 0)*100:.0f}% certainty)"
-            )
-        det_str = "; ".join(det_summary) if det_summary else "No anomalies"
+        # Clean defect labels
+        labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
+        det_names = "/".join(labels) if labels else "defect"
+        count = len(detections)
+        det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
+
+        # Category-matched 1-shot example (falls back to grid if unknown)
+        ex_assessment, ex_action = self._CATEGORY_EXAMPLES.get(
+            cat_key, self._CATEGORY_EXAMPLES["grid"]
+        )
 
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"You are a Six-Sigma Quality Engineer. An optical conveyor camera has detected a physical surface anomaly on an industrial part.\n"
-            f"Respond strictly in 3 concise engineering bullet points:\n"
+            f"Industrial QC Engineer. Exactly 1 sentence per bullet (max 12 words).\n"
+            f"Example ({cat_key}):\n"
+            f"- Assessment: {ex_assessment}\n"
+            f"- Action: {ex_action}<|eot_id|>\n"
+            f"<|start_header_id|>user<|end_header_id|>\n"
+            f"Part: {category.upper()} ({kb['material']}). "
+            f"Known failures: {kb['failure_modes']}. "
+            f"Risk: {kb['risk_threshold']} "
+            f"Defect: {det_desc} ({total_pct:.1f}% area, {conf_pct:.0f}% conf). "
+            f"Verdict: {verdict}.<|eot_id|>\n"
+            f"<|start_header_id|>assistant<|end_header_id|>\n"
             f"- Severity: {severity}\n"
-            f"- Assessment: [Technical failure mode and functional risk to {kb['material']} based on {total_pct}% defect area]\n"
-            f"- Action: [1. Part disposition, 2. Batch quarantine, 3. Tooling CAPA: check {kb['tooling_capa']}]\n"
-            f"\n"
-            f"Example:\n"
-            f"- Severity: CRITICAL\n"
-            f"- Assessment: Thermal firing crack covering 16% surface. Loss of structural flexural strength; fails ISO standard.\n"
-            f"- Action: 1. Auto-reject to scrap hopper. 2. Quarantine preceding 20 units. 3. Check kiln cooling ramp and press die balance.\n"
-            f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
-            f"Component: {category.upper()} ({kb['material']}).\n"
-            f"Optical Camera Finding: {det_str} covering {total_pct}% surface area.\n"
-            f"Quality Gate Verdict: {verdict} (Severity: {severity}).\n"
-            f"Known factory failure modes: {kb['failure_modes']}.\n"
-            f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+            f"- Assessment:"
         )
         return prompt
 
@@ -240,21 +344,14 @@ class LlamaAdvisoryEngine:
                 12.5
             )
 
-        if self.backend == "simulation":
-            advisory, latency = self._generate_simulation(category, detections, image_shape, rule_eval)
-            return advisory, latency
-
-        if self.backend == "server":
-            advisory = self._generate_server(category, detections, image_shape, rule_eval)
-            latency = (time.perf_counter() - t0) * 1000.0
-            return advisory, round(latency, 2)
-
         if self.backend == "executorch":
             advisory = self._generate_executorch(category, detections, image_shape, rule_eval)
             latency = (time.perf_counter() - t0) * 1000.0
             return advisory, round(latency, 2)
 
-        return rule_eval.get("rule_action", "No action specified."), 5.0
+        # Simulation Mode (PC development & testing)
+        advisory, latency = self._generate_simulation(category, detections, image_shape, rule_eval)
+        return advisory, latency
 
     def _generate_simulation(self, category, detections, image_shape, rule_eval):
         """Intelligent contextual simulation for PC testing."""
@@ -284,27 +381,6 @@ class LlamaAdvisoryEngine:
         sim_latency = round(45.0 + (len(category) * 3.5), 1)
         return advisory_text, sim_latency
 
-    def _generate_server(self, category, detections, image_shape, rule_eval):
-        prompt = self.build_compact_prompt(category, detections, image_shape, rule_eval)
-        payload = json.dumps({
-            "prompt": prompt,
-            "n_predict": self.max_tokens,
-            "temperature": self.temperature,
-            "stop": ["<|eot_id|>", "<|end_of_text|>"],
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            self.server_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data.get("content", "").strip()
-        except Exception as e:
-            return f"Error contacting Llama server: {e}"
-
     def _generate_executorch(self, category, detections, image_shape, rule_eval):
         prompt = self.build_compact_prompt(category, detections, image_shape, rule_eval)
         cmd = [
@@ -314,7 +390,7 @@ class LlamaAdvisoryEngine:
             "--prompt", prompt,
             "--max_new_tokens", str(self.max_tokens),
             "--temperature", str(self.temperature),
-            "--cpu_threads", "4",
+            "--cpu_threads", "3",
         ]
         try:
             runner_dir = self.runner_path.parent
@@ -323,7 +399,8 @@ class LlamaAdvisoryEngine:
             existing_ld = env.get("LD_LIBRARY_PATH", "")
             env["LD_LIBRARY_PATH"] = f"{runner_dir}:{existing_ld}".rstrip(":")
 
-            print(f"[ExecuTorch] Executing: {self.runner_path.name} in {runner_dir}...")
+            loc_desc = "RAM (/dev/shm)" if getattr(self, "is_ram_disk", False) else "Disk (MicroSD)"
+            print(f"[ExecuTorch] Executing from {loc_desc}: {self.model_path.name}...")
             res = subprocess.run(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -364,6 +441,23 @@ class LlamaAdvisoryEngine:
                 out = out.replace(prompt, "")
 
             out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
+
+            severity = rule_eval.get("severity", "CRITICAL")
+            cat_key = category.lower()
+            kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
+
+            # Ensure complete 3-bullet structure even if runner only returned newly generated tokens
+            if not out.startswith("- Severity:") and not out.startswith("• Severity:"):
+                if out.startswith("- Assessment:") or out.startswith("Assessment:"):
+                    out = f"- Severity: {severity}\n" + out
+                else:
+                    out = f"- Severity: {severity}\n- Assessment: " + out.lstrip("- ")
+
+            # Safety guarantee: If output was truncated before writing Action, append verified tooling CAPA
+            if "- Action:" not in out and "• Action:" not in out and "Action:" not in out:
+                fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
+                out = out.rstrip().rstrip(".") + f".\n- Action: {fallback_act}"
+
             return out if out else (
                 f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
                 f"• Assessment: ExecuTorch generated empty output.\n"

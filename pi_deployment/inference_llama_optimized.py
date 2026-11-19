@@ -66,10 +66,35 @@ except ImportError:
 # ---------------------------------------------------------------------
 CLASS_NAMES = {0: "anomaly"}
 
-DEFAULT_LLAMA_DIR = Path.home() / "Desktop" / "executorch-3b"
-DEFAULT_LLAMA_RUNNER = DEFAULT_LLAMA_DIR / "llama_main"
-DEFAULT_LLAMA_MODEL = DEFAULT_LLAMA_DIR / "llama-3b.pte"
-DEFAULT_LLAMA_TOKENIZER = DEFAULT_LLAMA_DIR / "tokenizer.json"
+def find_default_llama_paths():
+    candidates = [
+        Path.home() / "executorch-deployment",
+        Path("/home/raspberrypi5/executorch-deployment"),
+        Path.home() / "Desktop" / "executorch-deployment",
+        Path.home() / "Desktop" / "executorch-1b",
+        Path.home() / "executorch-1b",
+        Path.home() / "Desktop" / "executorch",
+        Path.home() / "executorch",
+        Path.home() / "Desktop" / "executorch-3b",
+        Path.home() / "executorch-3b",
+    ]
+    for d in candidates:
+        try:
+            if d.is_dir():
+                runner = d / "llama_main"
+                ptes = list(d.glob("*.pte"))
+                toks = list(d.glob("*tokenizer*"))
+                if runner.is_file():
+                    chosen_pte = [p for p in ptes if "1b" in p.name.lower()]
+                    model = chosen_pte[0] if chosen_pte else (ptes[0] if ptes else d / "llama-1b.pte")
+                    tok = toks[0] if toks else d / "tokenizer.json"
+                    return runner, model, tok
+        except Exception:
+            continue
+    fallback = Path.home() / "executorch-deployment"
+    return fallback / "llama_main", fallback / "Llama-3.2-1B-Instruct-SpinQuant_INT4_EO8.pte", fallback / "tokenizer.model"
+
+DEFAULT_LLAMA_RUNNER, DEFAULT_LLAMA_MODEL, DEFAULT_LLAMA_TOKENIZER = find_default_llama_paths()
 
 # Industrial Rule-Engine Thresholds
 HIGH_SEVERITY_MASK_PCT = 10.0   # Defect covering >10% of image is critical
@@ -390,13 +415,79 @@ def evaluate_qc_rules(detections, image_shape):
 
 
 # ---------------------------------------------------------------------
+# Industrial Knowledge Base (mirrors backend/llama_engine.py INDUSTRIAL_KB)
+# ---------------------------------------------------------------------
+INDUSTRIAL_KB = {
+    "tile":       {"material": "Ceramic / Porcelain Flooring",
+                   "failure_modes": "Mechanical press stress cracks, thermal firing fractures, conveyor oil leaks, glue overflow",
+                   "risk_threshold": "Cracks >3% cause catastrophic failure under 1500N floor load (ISO 10545-4).",
+                   "tooling_capa": "Inspect hydraulic press die balance, verify Kiln Zone 3 cooling ramp (<15°C/min), check pneumatic chain lubricator."},
+    "bottle":     {"material": "PET / Glass Beverage Container",
+                   "failure_modes": "Neck finish cracks, sidewall parison bubbles, foreign particulate contamination",
+                   "risk_threshold": "Neck defects destroy hermetic seal, causing pressure loss and microbial spoilage.",
+                   "tooling_capa": "Inspect blow-mold clamp alignment, check preform heater lamp calibration, inspect capper torque."},
+    "cable":      {"material": "Copper Conductor / Extruded PVC Sheath",
+                   "failure_modes": "Conductor strand breakage, cut/pinched insulation, crimp deformation",
+                   "risk_threshold": "Exposed copper causes dielectric breakdown, short circuits, and fire hazard.",
+                   "tooling_capa": "Check wire-stripping blade clearance, inspect feed guide tension rollers, calibrate crimp applicator."},
+    "capsule":    {"material": "Gelatin / HPMC Pharmaceutical Capsule",
+                   "failure_modes": "Cap/body split, pinhole puncture, dosage leakage, surface dent",
+                   "risk_threshold": "Wall rupture compromises active ingredient dosage integrity and shelf-life.",
+                   "tooling_capa": "Inspect capsule rectifier track, check closing station pin depth, verify vacuum transfer cups."},
+    "carpet":     {"material": "Woven Textile / Polypropylene Fiber",
+                   "failure_modes": "Tuft pull-out, loop cut, metal particulate, uneven pile density",
+                   "risk_threshold": "Thread tears propagate under foot traffic; metal fragments violate safety standards.",
+                   "tooling_capa": "Examine tufting needle sharpness, check yarn tension brakes, sweep inline magnetic metal detector."},
+    "grid":       {"material": "Stamped Sheet Metal / Aluminum Honeycomb",
+                   "failure_modes": "Bent mesh strut, broken weld node, adhesive drip, burr deformation",
+                   "risk_threshold": "Strut fractures reduce structural shear resistance and block airflow volume.",
+                   "tooling_capa": "Inspect stamping die clearance, examine spot-weld electrode tips, check trim blade burrs."},
+    "hazelnut":   {"material": "Organic Food / Agricultural Nut",
+                   "failure_modes": "Shell crack, insect bore hole, fungal aflatoxin mold, internal rot",
+                   "risk_threshold": "Internal fungal rot or aflatoxins fail food safety standards (FDA/EU).",
+                   "tooling_capa": "Calibrate optical color sorter sensitivity, check pneumatic reject nozzle pressure and timing."},
+    "leather":    {"material": "Natural Hide / Automotive Upholstery Leather",
+                   "failure_modes": "Surface cut, scar deformation, glue smear, needle puncture",
+                   "risk_threshold": "Grain punctures rupture under seat tension load; aesthetic grade reduction.",
+                   "tooling_capa": "Inspect CNC oscillating cutting blade sharpness, check hide tension vacuum bed, clean feed rollers."},
+    "metal_nut":  {"material": "Hardened Grade 8 Carbon Steel Hex Nut",
+                   "failure_modes": "Stripped internal thread, bent chamfer corner, surface oxidation scratch",
+                   "risk_threshold": "Thread deformation causes thread galling or total joint torque loss under dynamic load.",
+                   "tooling_capa": "Inspect thread tapping tool wear, check cold-heading punch concentricity, verify rust-inhibitor bath."},
+    "pill":       {"material": "Compressed Solid Dose Tablet",
+                   "failure_modes": "Tablet capping/lamination, edge chipping, surface contamination, deboss defect",
+                   "risk_threshold": "Chipping causes variable drug dosage; capping exposes formulation to rapid degradation.",
+                   "tooling_capa": "Check tablet press punch tooling wear, verify pre-compression force, inspect ejection cam."},
+    "screw":      {"material": "Grade 10.9 Zinc-Plated Fastener",
+                   "failure_modes": "Stripped Torx/hex head drive, thread pitch damage, head-to-shank neck scratch",
+                   "risk_threshold": "Damaged drive prevents automated robotic assembly torque; neck defects trigger fatigue fracture.",
+                   "tooling_capa": "Inspect thread-rolling dies, calibrate heading punch strike alignment, check zinc plating rack contacts."},
+    "toothbrush": {"material": "Molded Polypropylene & Nylon Bristles",
+                   "failure_modes": "Splayed bristle tuft, missing anchor plate, bristle shedding, handle flash",
+                   "risk_threshold": "Loose bristles present choking risk and gum abrasion during hygiene use.",
+                   "tooling_capa": "Inspect bristle tufting stapling machine, verify anchor wire feed tension, examine bristle end-rounding buffer."},
+    "transistor": {"material": "Semiconductor TO-220 / DPAK Epoxy Package",
+                   "failure_modes": "Bent lead terminal, cracked epoxy casing, heatsink tab scratch, solder bridging",
+                   "risk_threshold": "Bent leads block PCB through-hole insertion; cracked packaging permits moisture ingress.",
+                   "tooling_capa": "Inspect lead trim-and-form tooling die, calibrate SMD tape-and-reel feeder, check vacuum pickup nozzle."},
+    "wood":       {"material": "Hardwood / Architectural Veneer Board",
+                   "failure_modes": "Drilled hole, resin/liquid stain, surface gouge scratch, knot cracking",
+                   "risk_threshold": "Deep gouges ruin decorative finish grade; knot fractures reduce structural bending strength.",
+                   "tooling_capa": "Check planer blade sharpness, inspect automated sanding belt grit, clean conveyor drive belts."},
+    "zipper":     {"material": "Molded Plastic / Brass Interlocking Teeth",
+                   "failure_modes": "Missing tooth, bent pitch spacing, misaligned slider stop, slider catch",
+                   "risk_threshold": "Tooth displacement prevents tooth interlock, causing complete separation under lateral pull.",
+                   "tooling_capa": "Inspect tooth injection mold cavity, check ultrasonic top-stop welding horn, examine chain guide."},
+}
+
+
+# ---------------------------------------------------------------------
 # Optimized Llama Advisory Engine
 # ---------------------------------------------------------------------
 class LlamaAdvisoryEngine:
     """
-    Multi-backend Llama client:
-      - 'executorch': Invokes ARM64 llama_main executable directly.
-      - 'server': Uses persistent HTTP connection to llama-server (0s cold load!).
+    On-Device Arm ExecuTorch Llama Advisory Engine
+    Executes SpinQuant INT4 .pte models natively on Raspberry Pi 5 ARM Cortex-A76.
     """
 
     def __init__(
@@ -405,8 +496,7 @@ class LlamaAdvisoryEngine:
         runner_path=DEFAULT_LLAMA_RUNNER,
         model_path=DEFAULT_LLAMA_MODEL,
         tokenizer_path=DEFAULT_LLAMA_TOKENIZER,
-        server_url="http://127.0.0.1:8080/completion",
-        max_tokens=75,
+        max_tokens=48,
         temperature=0.1,
         timeout=180,
     ):
@@ -414,62 +504,109 @@ class LlamaAdvisoryEngine:
         self.runner_path = Path(runner_path)
         self.model_path = Path(model_path)
         self.tokenizer_path = Path(tokenizer_path)
-        self.server_url = server_url
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
         self.timeout = int(timeout)
 
     def validate(self):
-        if self.backend == "executorch":
-            required = [
-                ("Llama runner", self.runner_path),
-                ("Llama model", self.model_path),
-                ("Llama tokenizer", self.tokenizer_path),
-            ]
-            missing = [f"{desc}: {p}" for desc, p in required if not p.is_file()]
-            if missing:
-                raise FileNotFoundError(
-                    "Required Llama file(s) not found:\n  " + "\n  ".join(missing)
-                )
-            if not os.access(self.runner_path, os.X_OK):
-                raise PermissionError(f"Runner is not executable: {self.runner_path}")
+        required = [
+            ("Llama runner", self.runner_path),
+            ("Llama model", self.model_path),
+            ("Llama tokenizer", self.tokenizer_path),
+        ]
+        missing = [f"{desc}: {p}" for desc, p in required if not p.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                "Required ExecuTorch file(s) not found:\n  " + "\n  ".join(missing)
+            )
+        if not os.access(self.runner_path, os.X_OK):
+            raise PermissionError(f"ExecuTorch runner is not executable: {self.runner_path}")
 
-        elif self.backend == "server":
-            # Test connectivity to local server
+        # Fast-Path RAM Disk Staging (/dev/shm) for zero MicroSD cold load
+        shm_root = Path("/dev/shm")
+        if shm_root.is_dir() and os.access(str(shm_root), os.W_OK):
             try:
-                base_url = self.server_url.rsplit("/", 1)[0] + "/health"
-                req = urllib.request.Request(base_url, headers={"User-Agent": "Hailo-Pi5"})
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    pass
-            except Exception:
-                # Many servers don't have /health, test completion endpoint
-                pass
+                import shutil
+                shm_dir = shm_root / "executorch"
+                shm_dir.mkdir(parents=True, exist_ok=True)
+                shm_model = shm_dir / self.model_path.name
+                if not shm_model.is_file() or shm_model.stat().st_size != self.model_path.stat().st_size:
+                    print(f"[RAM Staging] ⚡ Mirroring {self.model_path.name} to /dev/shm for zero cold load...")
+                    shutil.copy2(str(self.model_path), str(shm_model))
+                self.model_path = shm_model
+                print(f"[RAM Staging] ✅ ExecuTorch model active from RAM: {self.model_path}")
+            except Exception as e:
+                print(f"[RAM Staging] /dev/shm staging skipped: {e}")
+
+    # Category-specific 1-shot examples — mirrors llama_engine.py
+    _CATEGORY_EXAMPLES = {
+        "tile":       ("Stress crack propagates under 1500N floor load per ISO 10545.",
+                       "Stop press, inspect Kiln Zone 3 cooling ramp."),
+        "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",
+                       "Reject lot, check blow-mold clamp alignment."),
+        "cable":      ("Exposed copper conductor causes dielectric breakdown fire risk.",
+                       "Check wire-stripping blade clearance immediately."),
+        "capsule":    ("Cap split compromises active ingredient dosage integrity.",
+                       "Check capsule closing station pin depth."),
+        "carpet":     ("Thread tear propagates under foot traffic load.",
+                       "Inspect tufting needle sharpness, check yarn tension."),
+        "grid":       ("Bent strut reduces structural shear resistance per spec.",
+                       "Divert part, inspect stamping die clearance."),
+        "hazelnut":   ("Shell crack permits aflatoxin mold growth, fails FDA standard.",
+                       "Calibrate optical color sorter, check reject nozzle."),
+        "leather":    ("Grain puncture ruptures under seat upholstery tension load.",
+                       "Inspect CNC cutting blade sharpness, clean feed rollers."),
+        "metal_nut":  ("Stripped thread causes galling and joint torque loss.",
+                       "Inspect thread tapping tool wear, check punch concentricity."),
+        "pill":       ("Tablet capping exposes formulation to rapid degradation.",
+                       "Check punch tooling wear, verify pre-compression force."),
+        "screw":      ("Damaged drive prevents robotic torque during automated assembly.",
+                       "Inspect thread-rolling dies, calibrate heading punch alignment."),
+        "toothbrush": ("Loose bristle presents choking risk during hygiene use.",
+                       "Inspect tufting stapler, verify anchor wire tension."),
+        "transistor": ("Bent lead blocks PCB insertion and risks solder short.",
+                       "Inspect lead trim-form die, check vacuum pickup nozzle."),
+        "wood":       ("Deep gouge ruins decorative finish grade, reduces bending strength.",
+                       "Check planer blade sharpness, inspect sanding belt grit."),
+        "zipper":     ("Missing tooth prevents interlock, causing separation under lateral pull.",
+                       "Inspect tooth injection mold cavity, check chain guide."),
+    }
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
-        Creates an ultra-concise prompt (~65 tokens).
-        Dramatically cuts prefill time from 7.1s down to ~1.0s.
+        KB-enriched 1-shot prompt (~85 tokens) with assistant pre-filling.
+        Injects failure_modes and risk_threshold for domain-specific assessments.
         """
-        h, w = image_shape[:2]
-        det_summary = []
-        for i, d in enumerate(detections, 1):
-            pct = (d["mask_area_px"] / (h * w)) * 100.0 if (h * w) > 0 else 0
-            det_summary.append(
-                f"Det{i}: {d['label']}, conf={d['confidence']:.2f}, area={pct:.1f}%"
-            )
-        det_str = "; ".join(det_summary)
+        cat_key = category.lower()
+        kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
 
-        # Few-token system + structured query
+        labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
+        det_names = "/".join(labels) if labels else "defect"
+        count = len(detections)
+        det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
+        severity = rule_eval.get("severity", "CRITICAL")
+        total_pct = rule_eval.get("total_mask_pct", 0)
+        conf_pct = rule_eval.get("max_confidence", 0) * 100
+
+        ex_assessment, ex_action = self._CATEGORY_EXAMPLES.get(
+            cat_key, self._CATEGORY_EXAMPLES["grid"]
+        )
+
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"You are an industrial QA advisor. Be concise. Reply in exactly 3 bullet points:\n"
-            f"- Severity: [Low / Medium / High / Critical]\n"
-            f"- Assessment: [1 sentence explaining risk based on area and confidence]\n"
-            f"- Action: [Exact recommended handling]\n"
-            f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
-            f"Surface: {category.upper()} ({w}x{h}). Rule Verdict: {rule_eval['verdict']} "
-            f"({rule_eval['total_mask_pct']}% defect area). Details: {det_str}.\n"
-            f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+            f"Industrial QC Engineer. Exactly 1 sentence per bullet (max 12 words).\n"
+            f"Example ({cat_key}):\n"
+            f"- Assessment: {ex_assessment}\n"
+            f"- Action: {ex_action}<|eot_id|>\n"
+            f"<|start_header_id|>user<|end_header_id|>\n"
+            f"Part: {category.upper()} ({kb['material']}). "
+            f"Known failures: {kb['failure_modes']}. "
+            f"Risk: {kb['risk_threshold']} "
+            f"Defect: {det_desc} ({total_pct:.1f}% area, {conf_pct:.0f}% conf). "
+            f"Verdict: {rule_eval['verdict']}.<|eot_id|>\n"
+            f"<|start_header_id|>assistant<|end_header_id|>\n"
+            f"- Severity: {severity}\n"
+            f"- Assessment:"
         )
         return prompt
 
@@ -479,51 +616,7 @@ class LlamaAdvisoryEngine:
 
         prompt = self.build_compact_prompt(category, detections, image_shape, rule_eval)
 
-        # -------------------------------------------------------------
-        # Path A: Persistent Server (llama-server or Ollama)
-        # -------------------------------------------------------------
-        if self.backend == "server":
-            # Auto-detect if target is Ollama (port 11434) or llama-server (port 8080)
-            is_ollama = "11434" in self.server_url or "/api/generate" in self.server_url
-            if is_ollama:
-                payload = json.dumps({
-                    "model": "llama3.2:1b",
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "num_predict": self.max_tokens,
-                        "temperature": self.temperature,
-                    },
-                }).encode("utf-8")
-            else:
-                payload = json.dumps({
-                    "prompt": prompt,
-                    "n_predict": self.max_tokens,
-                    "temperature": self.temperature,
-                    "stop": ["<|eot_id|>", "\n\n\n"],
-                }).encode("utf-8")
-
-            req = urllib.request.Request(
-                self.server_url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    resp_json = json.loads(resp.read().decode("utf-8"))
-                    if is_ollama:
-                        content = resp_json.get("response", "").strip()
-                    else:
-                        content = resp_json.get("content", "").strip()
-                    if content:
-                        return content
-            except Exception as e:
-                print(f"[Warn] Server backend failed ({e}). Falling back to rule advice.")
-                return f"[Rule Fallback] {rule_eval['rule_action']}"
-
-        # -------------------------------------------------------------
-        # Path B: ExecuTorch CLI runner
-        # -------------------------------------------------------------
+        # ExecuTorch CLI runner
         cmd = [
             str(self.runner_path),
             f"--model_path={self.model_path}",
@@ -531,6 +624,7 @@ class LlamaAdvisoryEngine:
             f"--temperature={self.temperature}",
             f"--max_new_tokens={self.max_tokens}",
             f"--prompt={prompt}",
+            "--cpu_threads=3",
         ]
 
         try:
@@ -549,7 +643,18 @@ class LlamaAdvisoryEngine:
             marker = "<|start_header_id|>assistant<|end_header_id|>"
             if marker in out:
                 out = out.rsplit(marker, 1)[-1]
-            out = out.replace("<|eot_id|>", "").strip()
+            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
+
+            severity = rule_eval.get("severity", "CRITICAL")
+            if not out.startswith("- Severity:") and not out.startswith("• Severity:"):
+                if out.startswith("- Assessment:") or out.startswith("Assessment:"):
+                    out = f"- Severity: {severity}\n" + out
+                else:
+                    out = f"- Severity: {severity}\n- Assessment: " + out.lstrip("- ")
+
+            if "- Action:" not in out and "• Action:" not in out and "Action:" not in out:
+                out = out.rstrip().rstrip(".") + f".\n- Action: {rule_eval.get('rule_action', 'Quarantine part and inspect tooling.')}"
+
             return out if out else "Llama produced an empty response."
 
         except subprocess.TimeoutExpired:
@@ -660,15 +765,9 @@ def parse_args():
     # Llama Optimization Flags
     parser.add_argument(
         "--llama-backend",
-        choices=["executorch", "server"],
+        choices=["executorch"],
         default="executorch",
-        help="Llama engine backend. 'server' uses persistent warm HTTP server.",
-    )
-    parser.add_argument(
-        "--llama-server-url",
-        type=str,
-        default="http://127.0.0.1:8080/completion",
-        help="URL of persistent llama-server / llama.cpp completion endpoint",
+        help="Llama engine backend (Meta ExecuTorch ARM64 runtime).",
     )
     parser.add_argument(
         "--llama-model",
