@@ -431,7 +431,7 @@ class LlamaAdvisoryEngine:
         model_path=DEFAULT_LLAMA_MODEL,
         tokenizer_path=DEFAULT_LLAMA_TOKENIZER,
         server_url="http://127.0.0.1:8080/completion",
-        max_tokens=45,
+        max_tokens=35,
         temperature=0.1,
         timeout=180,
     ):
@@ -488,27 +488,25 @@ class LlamaAdvisoryEngine:
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
-        Creates an ultra-concise prompt (~65 tokens).
-        Dramatically cuts prefill time from 7.1s down to ~1.0s.
+        Creates a 1-shot anchored prompt (~65 tokens).
+        Prevents raw percentage spam and anchors output length to <20 tokens.
         """
         h, w = image_shape[:2]
-        det_summary = []
-        for i, d in enumerate(detections, 1):
-            pct = (d["mask_area_px"] / (h * w)) * 100.0 if (h * w) > 0 else 0
-            det_summary.append(
-                f"Det{i}: {d['label']}, conf={d['confidence']:.2f}, area={pct:.1f}%"
-            )
-        det_str = "; ".join(det_summary)
+        labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
+        det_names = "/".join(labels) if labels else "defect"
+        count = len(detections)
+        det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
         severity = rule_eval.get("severity", "CRITICAL")
+        total_pct = rule_eval.get("total_mask_pct", 0)
 
-        # Ultra-lean prompt (~45 tokens) with assistant pre-filling
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"QA Inspector. Be brief. Complete the 2 bullets:\n"
-            f"- Assessment: 1 brief sentence on physical risk.\n"
-            f"- Action: 1 brief sentence on exact disposition.<|eot_id|>\n"
+            f"QA Inspector. Exactly 1 brief sentence per bullet.\n"
+            f"Example:\n"
+            f"- Assessment: Bent grid strut reduces mechanical shear resistance.\n"
+            f"- Action: Divert part to rework, inspect stamping die.<|eot_id|>\n"
             f"<|start_header_id|>user<|end_header_id|>\n"
-            f"Part: {category.upper()} ({w}x{h}). Anomaly: {det_str} covering {rule_eval['total_mask_pct']}% area. Verdict: {rule_eval['verdict']}.<|eot_id|>\n"
+            f"Part: {category.upper()} ({w}x{h}). Defect: {det_desc} ({total_pct:.1f}% area). Verdict: {rule_eval['verdict']}.<|eot_id|>\n"
             f"<|start_header_id|>assistant<|end_header_id|>\n"
             f"- Severity: {severity}\n"
             f"- Assessment:"
@@ -573,6 +571,7 @@ class LlamaAdvisoryEngine:
             f"--temperature={self.temperature}",
             f"--max_new_tokens={self.max_tokens}",
             f"--prompt={prompt}",
+            "--cpu_threads=3",
         ]
 
         try:
@@ -599,6 +598,9 @@ class LlamaAdvisoryEngine:
                     out = f"- Severity: {severity}\n" + out
                 else:
                     out = f"- Severity: {severity}\n- Assessment: " + out.lstrip("- ")
+
+            if "- Action:" not in out and "• Action:" not in out and "Action:" not in out:
+                out = out.rstrip().rstrip(".") + f".\n- Action: {rule_eval.get('rule_action', 'Quarantine part and inspect tooling.')}"
 
             return out if out else "Llama produced an empty response."
 

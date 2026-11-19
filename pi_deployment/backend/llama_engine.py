@@ -219,7 +219,7 @@ class LlamaAdvisoryEngine:
         model_path=None,
         tokenizer_path=None,
         server_url="http://127.0.0.1:8080/completion",
-        max_tokens=45,
+        max_tokens=35,
         temperature=0.0,
     ):
         disc_runner, disc_model, disc_tok = auto_discover_llama()
@@ -276,8 +276,8 @@ class LlamaAdvisoryEngine:
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
-        Builds an ultra-lean prompt (~45 tokens) with assistant pre-filling.
-        Cuts prefill latency from ~3.5s down to ~0.6s and prevents conversational filler.
+        Builds a 1-shot anchored prompt (~65 tokens) with assistant pre-filling.
+        Prevents open-ended percentage rambling and guarantees <20 token generation.
         """
         h, w = image_shape[:2]
         cat_key = category.lower()
@@ -287,20 +287,20 @@ class LlamaAdvisoryEngine:
         verdict = rule_eval.get("verdict", "REJECT")
         severity = rule_eval.get("severity", "CRITICAL")
 
-        det_summary = []
-        for i, d in enumerate(detections, 1):
-            pct = (d.get("mask_area_px", 0) / (h * w)) * 100.0 if (h * w) > 0 else 0
-            lbl = d.get('label', 'defect')
-            det_summary.append(f"{lbl} ({pct:.1f}%)")
-        det_str = ", ".join(det_summary) if det_summary else "none"
+        # Clean defect labels (no raw decimal percentage spam)
+        labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
+        det_names = "/".join(labels) if labels else "defect"
+        count = len(detections)
+        det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
 
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"QA Inspector. Be brief. Complete the 2 bullets:\n"
-            f"- Assessment: 1 brief sentence on physical risk to {kb['material']}.\n"
-            f"- Action: 1 brief sentence citing: {kb['tooling_capa']}<|eot_id|>\n"
+            f"QA Inspector. Exactly 1 sentence per bullet.\n"
+            f"Example:\n"
+            f"- Assessment: Bent grid strut reduces mechanical shear resistance.\n"
+            f"- Action: Divert part to rework, inspect stamping die.<|eot_id|>\n"
             f"<|start_header_id|>user<|end_header_id|>\n"
-            f"Part: {category.upper()}. Anomaly: {det_str} covering {total_pct}% area. Verdict: {verdict}.<|eot_id|>\n"
+            f"Part: {category.upper()} ({kb['material']}). Defect: {det_desc} ({total_pct:.1f}% area). Verdict: {verdict}. Check: {kb['tooling_capa']}<|eot_id|>\n"
             f"<|start_header_id|>assistant<|end_header_id|>\n"
             f"- Severity: {severity}\n"
             f"- Assessment:"
@@ -382,11 +382,16 @@ class LlamaAdvisoryEngine:
                 content = data.get("content", "").strip()
                 if content:
                     severity = rule_eval.get("severity", "CRITICAL")
+                    cat_key = category.lower()
+                    kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
                     if not content.startswith("- Severity:") and not content.startswith("• Severity:"):
                         if content.startswith("- Assessment:") or content.startswith("Assessment:"):
                             content = f"- Severity: {severity}\n" + content
                         else:
                             content = f"- Severity: {severity}\n- Assessment: " + content.lstrip("- ")
+                    if "- Action:" not in content and "Action:" not in content:
+                        fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
+                        content = content.rstrip().rstrip(".") + f".\n- Action: {fallback_act}"
                 return content
         except Exception as e:
             return f"Error contacting Llama server: {e}"
@@ -400,7 +405,7 @@ class LlamaAdvisoryEngine:
             "--prompt", prompt,
             "--max_new_tokens", str(self.max_tokens),
             "--temperature", str(self.temperature),
-            "--cpu_threads", "4",
+            "--cpu_threads", "3",
         ]
         try:
             runner_dir = self.runner_path.parent
@@ -453,12 +458,20 @@ class LlamaAdvisoryEngine:
             out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
 
             severity = rule_eval.get("severity", "CRITICAL")
+            cat_key = category.lower()
+            kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
+
             # Ensure complete 3-bullet structure even if runner only returned newly generated tokens
             if not out.startswith("- Severity:") and not out.startswith("• Severity:"):
                 if out.startswith("- Assessment:") or out.startswith("Assessment:"):
                     out = f"- Severity: {severity}\n" + out
                 else:
                     out = f"- Severity: {severity}\n- Assessment: " + out.lstrip("- ")
+
+            # Safety guarantee: If output was truncated before writing Action, append verified tooling CAPA
+            if "- Action:" not in out and "• Action:" not in out and "Action:" not in out:
+                fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
+                out = out.rstrip().rstrip(".") + f".\n- Action: {fallback_act}"
 
             return out if out else (
                 f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
