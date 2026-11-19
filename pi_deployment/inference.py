@@ -398,9 +398,9 @@ def list_available_models(models_dir, sample_images_dir=None):
     print("=" * 72)
     print("Quick Run Examples:")
     print("  python3 inference.py --model bottle")
-    print("  ./run_inference.sh --model cable")
-    print("  ./run_inference.sh zipper")
-    print("  ./run_inference.sh carpet --camera\n")
+    print("  ./run_inference.sh --model tile")
+    print("  ./run_inference.sh grid")
+    print("  ./run_inference.sh tile --camera\n")
 
 
 def resolve_model_path(model_arg, models_dir):
@@ -460,13 +460,13 @@ def parse_args():
         "-m", "--model",
         type=str,
         default=None,
-        help="Model name, category (e.g. 'bottle', 'tile', 'cable'), or path to .hef model"
+        help="Model name, category (e.g. 'bottle', 'tile', 'grid'), or path to .hef model"
     )
     parser.add_argument(
         "-c", "--category",
         type=str,
         default=None,
-        help="Alias for --model (e.g. bottle, cable, capsule, carpet, grid, hazelnut, pill, tile, zipper)"
+        help="Alias for --model (e.g. bottle, grid, tile)"
     )
     parser.add_argument(
         "-l", "--list-models",

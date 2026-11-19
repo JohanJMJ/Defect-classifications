@@ -61,7 +61,7 @@ Open your browser to:
 **`http://localhost:5000`**
 
 ### What to test in the UI:
-1. **Model Selector**: Switch between `Tile`, `Bottle`, `Cable`, `Capsule`, `Carpet`, `Grid`, `Hazelnut`, `Pill`, `Zipper`.
+1. **Model Selector**: Switch between verified production models (`Tile`, `Bottle`, `Grid`).
 2. **Sample Test Library tab**: Click any sample image (`defective_crack.png`, `good.png`, etc.) to run an instant inspection.
 3. **Upload tab**: Drag and drop any component image from your computer.
 4. **Camera tab**: View live webcam stream and click **Capture & Inspect Frame**.

@@ -15,7 +15,7 @@ def evaluate_rules(detections, image_shape, category="general"):
     Args:
         detections: list of dicts with keys 'confidence', 'mask_area_px', 'label'
         image_shape: tuple of (height, width, ...)
-        category: industrial category (e.g. tile, bottle, zipper, etc.)
+        category: industrial category (e.g. tile, bottle, grid, etc.)
 
     Returns:
         dict: verdict, severity, max_confidence, total_mask_pct, rule_action
@@ -42,12 +42,12 @@ def evaluate_rules(detections, image_shape, category="general"):
     if total_mask_pct >= HIGH_SEVERITY_MASK_PCT:
         severity = "CRITICAL"
         verdict = "REJECT"
-        if "cable" in cat_lower or "wire" in cat_lower:
-            action = f"Critical insulation/wire fault ({total_mask_pct:.1f}% area). Halt cable harness line immediately."
-        elif "bottle" in cat_lower or "capsule" in cat_lower or "pill" in cat_lower:
+        if "bottle" in cat_lower:
             action = f"Severe containment rupture or contamination ({total_mask_pct:.1f}%). Reject batch and isolate filler unit."
-        elif "zipper" in cat_lower:
-            action = f"Complete teeth displacement ({total_mask_pct:.1f}%). Reject zipper track and inspect alignment pins."
+        elif "grid" in cat_lower:
+            action = f"Severe mesh/strut structural fracture ({total_mask_pct:.1f}%). Reject grid and inspect stamping die."
+        elif "tile" in cat_lower:
+            action = f"Critical structural fracture ({total_mask_pct:.1f}%). Reject tile and check press die balance."
         else:
             action = f"Severe structural defect ({total_mask_pct:.1f}% surface area). Auto-reject part to scrap bin."
 

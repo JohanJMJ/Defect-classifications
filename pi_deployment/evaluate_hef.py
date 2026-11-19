@@ -181,7 +181,7 @@ def main():
         "-m", "--model",
         type=str,
         default=None,
-        help="Path, name, or category of compiled .hef file (e.g. 'bottle', 'tile', 'cable')"
+        help="Path, name, or category of compiled .hef file (e.g. 'bottle', 'tile', 'grid')"
     )
     parser.add_argument(
         "-c", "--category",

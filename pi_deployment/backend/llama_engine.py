@@ -117,35 +117,11 @@ INDUSTRIAL_KB = {
         "risk_threshold": "Neck defects destroy hermetic seal, causing pressure loss and microbial spoilage.",
         "tooling_capa": "Inspect blow-mold clamp alignment, check preform heater lamp calibration, inspect capper torque."
     },
-    "cable": {
-        "material": "Copper Conductor / Extruded PVC Sheath",
-        "failure_modes": "Conductor strand breakage, cut/pinched insulation, crimp deformation",
-        "risk_threshold": "Exposed copper causes dielectric breakdown, short circuits, and fire hazard.",
-        "tooling_capa": "Check wire-stripping blade clearance, inspect feed guide tension rollers, calibrate crimp applicator."
-    },
-    "capsule": {
-        "material": "Gelatin / HPMC Pharmaceutical Capsule",
-        "failure_modes": "Cap/body split, pinhole puncture, dosage leakage, surface dent",
-        "risk_threshold": "Wall rupture compromises active ingredient dosage integrity and shelf-life.",
-        "tooling_capa": "Inspect capsule rectifier track, check closing station pin depth, verify vacuum transfer cups."
-    },
-    "carpet": {
-        "material": "Woven Textile / Polypropylene Fiber",
-        "failure_modes": "Tuft pull-out, loop cut, metal particulate, uneven pile density",
-        "risk_threshold": "Thread tears propagate under foot traffic; metal fragments violate safety standards.",
-        "tooling_capa": "Examine tufting needle sharpness, check yarn tension brakes, sweep inline magnetic metal detector."
-    },
     "grid": {
         "material": "Stamped Sheet Metal / Aluminum Honeycomb",
         "failure_modes": "Bent mesh strut, broken weld node, adhesive drip, burr deformation",
         "risk_threshold": "Strut fractures reduce structural shear resistance and block airflow volume.",
         "tooling_capa": "Inspect stamping die clearance, examine spot-weld electrode tips, check trim blade burrs."
-    },
-    "hazelnut": {
-        "material": "Organic Food / Agricultural Nut",
-        "failure_modes": "Shell crack, insect bore hole, fungal aflatoxin mold, internal rot",
-        "risk_threshold": "Internal fungal rot or aflatoxins fail food safety standards (FDA/EU).",
-        "tooling_capa": "Calibrate optical color sorter sensitivity, check pneumatic reject nozzle pressure and timing."
     },
     "leather": {
         "material": "Natural Hide / Automotive Upholstery Leather",
@@ -158,12 +134,6 @@ INDUSTRIAL_KB = {
         "failure_modes": "Stripped internal thread, bent chamfer corner, surface oxidation scratch",
         "risk_threshold": "Thread deformation causes thread galling or total joint torque loss under dynamic load.",
         "tooling_capa": "Inspect thread tapping tool wear, check cold-heading punch concentricity, verify rust-inhibitor bath."
-    },
-    "pill": {
-        "material": "Compressed Solid Dose Tablet",
-        "failure_modes": "Tablet capping/lamination, edge chipping, surface contamination, deboss defect",
-        "risk_threshold": "Chipping causes variable drug dosage; capping exposes formulation to rapid degradation.",
-        "tooling_capa": "Check tablet press punch tooling wear, verify pre-compression force, inspect ejection cam."
     },
     "screw": {
         "material": "Grade 10.9 Zinc-Plated Fastener",
@@ -188,12 +158,6 @@ INDUSTRIAL_KB = {
         "failure_modes": "Drilled hole, resin/liquid stain, surface gouge scratch, knot cracking",
         "risk_threshold": "Deep gouges ruin decorative finish grade; knot fractures reduce structural bending strength.",
         "tooling_capa": "Check planer blade sharpness, inspect automated sanding belt grit, clean conveyor drive belts."
-    },
-    "zipper": {
-        "material": "Molded Plastic / Brass Interlocking Teeth",
-        "failure_modes": "Missing tooth, bent pitch spacing, misaligned slider stop, slider catch",
-        "risk_threshold": "Tooth displacement prevents tooth interlock, causing complete separation under lateral pull.",
-        "tooling_capa": "Inspect tooth injection mold cavity, check ultrasonic top-stop welding horn, examine chain guide."
     }
 }
 
@@ -262,22 +226,12 @@ class LlamaAdvisoryEngine:
                        "Stop press, inspect Kiln Zone 3 cooling ramp."),
         "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",
                        "Reject lot, check blow-mold clamp alignment."),
-        "cable":      ("Exposed copper conductor causes dielectric breakdown fire risk.",
-                       "Check wire-stripping blade clearance immediately."),
-        "capsule":    ("Cap split compromises active ingredient dosage integrity.",
-                       "Check capsule closing station pin depth."),
-        "carpet":     ("Thread tear propagates under foot traffic load.",
-                       "Inspect tufting needle sharpness, check yarn tension."),
         "grid":       ("Bent strut reduces structural shear resistance per spec.",
                        "Divert part, inspect stamping die clearance."),
-        "hazelnut":   ("Shell crack permits aflatoxin mold growth, fails FDA standard.",
-                       "Calibrate optical color sorter, check reject nozzle."),
         "leather":    ("Grain puncture ruptures under seat upholstery tension load.",
                        "Inspect CNC cutting blade sharpness, clean feed rollers."),
         "metal_nut":  ("Stripped thread causes galling and joint torque loss.",
                        "Inspect thread tapping tool wear, check punch concentricity."),
-        "pill":       ("Tablet capping exposes formulation to rapid degradation.",
-                       "Check punch tooling wear, verify pre-compression force."),
         "screw":      ("Damaged drive prevents robotic torque during automated assembly.",
                        "Inspect thread-rolling dies, calibrate heading punch alignment."),
         "toothbrush": ("Loose bristle presents choking risk during hygiene use.",
@@ -286,8 +240,6 @@ class LlamaAdvisoryEngine:
                        "Inspect lead trim-form die, check vacuum pickup nozzle."),
         "wood":       ("Deep gouge ruins decorative finish grade, reduces bending strength.",
                        "Check planer blade sharpness, inspect sanding belt grit."),
-        "zipper":     ("Missing tooth prevents interlock, causing separation under lateral pull.",
-                       "Inspect tooth injection mold cavity, check chain guide."),
     }
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):

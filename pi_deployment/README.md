@@ -25,16 +25,10 @@ pi_deployment/
 │   ├── config.py                # System telemetry, paths, and hardware monitor
 │   ├── templates/               # Offline HTML templates (base, index, history)
 │   └── static/                  # Responsive CSS, icons, and async JavaScript polling
-├── models/                      # 9 Pre-compiled Hailo-8 HEF executables (26 TOPS)
+├── models/                      # High-Accuracy Hailo-8 HEF executables (26 TOPS)
 │   ├── bottle_hailo8.hef        # Bottle defect segmentation (21.7 MB)
-│   ├── cable_hailo8.hef         # Cable defect segmentation (21.8 MB)
-│   ├── capsule_hailo8.hef       # Capsule defect segmentation (21.5 MB)
-│   ├── carpet_hailo8.hef        # Carpet defect segmentation (21.7 MB)
 │   ├── grid_hailo8.hef          # Grid defect segmentation (21.4 MB)
-│   ├── hazelnut_hailo8.hef      # Hazelnut defect segmentation (21.7 MB)
-│   ├── pill_hailo8.hef          # Pill defect segmentation (21.0 MB)
 │   ├── tile_hailo8.hef          # Tile defect segmentation (21.6 MB)
-│   ├── zipper_hailo8.hef        # Zipper defect segmentation (21.2 MB)
 │   ├── models.yaml              # Models registry & specifications
 │   └── metadata.yaml            # Base model metadata & segmentation classes
 ├── sample_images/               # Categorized test images for each model
@@ -82,12 +76,11 @@ chmod +x setup_pi.sh run_inference.sh inference.py evaluate_hef.py run_eval.sh
 
 # Select any model by category name (auto-loads matching sample images):
 ./run_inference.sh bottle
-./run_inference.sh cable
-./run_inference.sh carpet
-./run_inference.sh zipper
+./run_inference.sh grid
+./run_inference.sh tile
 
 # Or use standard --model / -m flags:
-./run_inference.sh --model capsule
+./run_inference.sh --model bottle
 python3 inference.py --model grid
 ```
 
@@ -167,14 +160,14 @@ python3 inference.py --source /dev/video0 --show
 ```bash
 # Run defect inspection on a specific category model
 ./run_inference.sh bottle
-./run_inference.sh --model cable
-./run_inference.sh --model carpet
+./run_inference.sh --model tile
+./run_inference.sh --model grid
 
 # Inspect single custom image with specific model:
 ./run_inference.sh --model bottle --source path/to/my_bottle.jpg
 
 # Inspect entire custom folder of images:
-./run_inference.sh --model zipper --source path/to/zipper_batch/
+./run_inference.sh --model tile --source path/to/tile_batch/
 ```
 
 ---
