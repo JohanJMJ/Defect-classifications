@@ -431,7 +431,7 @@ class LlamaAdvisoryEngine:
         model_path=DEFAULT_LLAMA_MODEL,
         tokenizer_path=DEFAULT_LLAMA_TOKENIZER,
         server_url="http://127.0.0.1:8080/completion",
-        max_tokens=75,
+        max_tokens=45,
         temperature=0.1,
         timeout=180,
     ):
@@ -499,18 +499,19 @@ class LlamaAdvisoryEngine:
                 f"Det{i}: {d['label']}, conf={d['confidence']:.2f}, area={pct:.1f}%"
             )
         det_str = "; ".join(det_summary)
+        severity = rule_eval.get("severity", "CRITICAL")
 
-        # Few-token system + structured query
+        # Ultra-lean prompt (~45 tokens) with assistant pre-filling
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"You are an industrial QA advisor. Be concise. Reply in exactly 3 bullet points:\n"
-            f"- Severity: [Low / Medium / High / Critical]\n"
-            f"- Assessment: [1 sentence explaining risk based on area and confidence]\n"
-            f"- Action: [Exact recommended handling]\n"
-            f"<|eot_id|><|start_header_id|>user<|end_header_id|>\n"
-            f"Surface: {category.upper()} ({w}x{h}). Rule Verdict: {rule_eval['verdict']} "
-            f"({rule_eval['total_mask_pct']}% defect area). Details: {det_str}.\n"
-            f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+            f"QA Inspector. Be brief. Complete the 2 bullets:\n"
+            f"- Assessment: 1 brief sentence on physical risk.\n"
+            f"- Action: 1 brief sentence on exact disposition.<|eot_id|>\n"
+            f"<|start_header_id|>user<|end_header_id|>\n"
+            f"Part: {category.upper()} ({w}x{h}). Anomaly: {det_str} covering {rule_eval['total_mask_pct']}% area. Verdict: {rule_eval['verdict']}.<|eot_id|>\n"
+            f"<|start_header_id|>assistant<|end_header_id|>\n"
+            f"- Severity: {severity}\n"
+            f"- Assessment:"
         )
         return prompt
 
@@ -590,7 +591,15 @@ class LlamaAdvisoryEngine:
             marker = "<|start_header_id|>assistant<|end_header_id|>"
             if marker in out:
                 out = out.rsplit(marker, 1)[-1]
-            out = out.replace("<|eot_id|>", "").strip()
+            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
+
+            severity = rule_eval.get("severity", "CRITICAL")
+            if not out.startswith("- Severity:") and not out.startswith("• Severity:"):
+                if out.startswith("- Assessment:") or out.startswith("Assessment:"):
+                    out = f"- Severity: {severity}\n" + out
+                else:
+                    out = f"- Severity: {severity}\n- Assessment: " + out.lstrip("- ")
+
             return out if out else "Llama produced an empty response."
 
         except subprocess.TimeoutExpired:
