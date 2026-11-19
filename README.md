@@ -48,7 +48,7 @@ Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local deve
 ## Key Highlights
 
 - **Ultra-Fast Edge Vision AI**: Native HailoRT (`hailo_platform`) PCIe inference executes in **~22 ms** (~45+ FPS) with zero PyTorch or Ultralytics runtime overhead.
-- **9 Pre-Compiled HEF Industrial Models**: Pre-quantized and compiled for Hailo-8 (`bottle`, `cable`, `capsule`, `carpet`, `grid`, `hazelnut`, `pill`, `tile`, `zipper`).
+- **High-Accuracy HEF Industrial Models**: Pre-quantized and compiled for Hailo-8 (`steel_defects`, `bottle`, `grid`, `tile`).
 - **Decoupled Asynchronous LLM Architecture**: Hailo-8 vision segmentation masks and pass/reject verdicts display **immediately (< 25 ms)**, while Llama 3.2 1B INT4 resolves root-cause advice asynchronously (**~2.5s**) with an animated UI progress indicator.
 - **Continuous Conveyor Mode**: Automated cycle inspection (1s to 10s intervals) with sub-millisecond deterministic triage bypass for non-stop manufacturing lines.
 - **Self-Healing Hardware Pipeline**: Thread-safe mutex locking (`RLock`) and automatic PCIe reset (`hailortcli fw-control reset`) with instant 1-shot retry to eliminate PCIe timeouts.
@@ -146,7 +146,7 @@ The terminal will print:
 
 #### Step 4: Open your browser
 Navigate to **`http://localhost:5000`** (or access from your smartphone using the network IP).
-- Switch models using the **Defect Detection Model** dropdown (`Tile`, `Bottle`, `Cable`, etc.).
+- Switch models using the **Defect Detection Model** dropdown (`Steel Defects`, `Tile`, `Bottle`, `Grid`).
 - Try the **Sample Test Library** tab to inspect pre-loaded defect images.
 - Drag & drop images onto the **Upload Image** tab.
 - Click **Live Camera Feed** to test webcam streaming and continuous inspection.

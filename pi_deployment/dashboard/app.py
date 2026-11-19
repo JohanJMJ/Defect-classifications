@@ -139,7 +139,7 @@ def api_models():
     return jsonify({
         "success": True,
         "models": models,
-        "active_model": vision_engine.current_model_name or "tile",
+        "active_model": vision_engine.current_model_name or "steel_defects",
         "simulation_mode": vision_engine.is_simulation_mode(),
     })
 
@@ -185,7 +185,7 @@ def api_inspect():
       - Camera capture ('source_type'='camera') OR
       - Sample library reference ('sample_path' and 'source_type'='sample')
     """
-    model_category = request.form.get("model", "tile").lower()
+    model_category = request.form.get("model", "steel_defects").lower()
     component_id = request.form.get("component_id") or f"COMP-{uuid.uuid4().hex[:6].upper()}"
     source_type = request.form.get("source_type", "upload")
 

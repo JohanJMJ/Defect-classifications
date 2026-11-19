@@ -21,8 +21,8 @@
                     </label>
                     <select id="modelSelect" class="form-select">
                         {% for key, val in models.items() %}
-                        <option value="{{ key }}" {% if key=='tile' %}selected{% endif %}>
-                            {{ key|upper }} ({{ val.description }})
+                        <option value="{{ key }}" {% if key=='steel_defects' %}selected{% endif %}>
+                            {{ val.description or key.replace('_', ' ')|title }}
                         </option>
                         {% endfor %}
                     </select>
@@ -31,7 +31,7 @@
                 <div class="control-group">
                     <label for="componentId" class="control-label">COMPONENT SERIAL ID</label>
                     <div class="input-with-action">
-                        <input type="text" id="componentId" class="form-input" placeholder="e.g. TILE-LOT-401" value="">
+                        <input type="text" id="componentId" class="form-input" placeholder="e.g. STEEL-LOT-401" value="">
                         <button type="button" id="btnGenId" class="btn-secondary btn-sm"
                             title="Generate New Serial ID">Auto ID</button>
                     </div>
@@ -40,7 +40,7 @@
 
             <!-- Model Info Description -->
             <div class="model-desc-banner" id="modelDesc">
-                Category: <strong>Tile</strong> &bull; Segmenting: glue strip, oil, crack, gray stroke, rough
+                Active Model: <strong>Steel Defects</strong>
             </div>
         </div>
 

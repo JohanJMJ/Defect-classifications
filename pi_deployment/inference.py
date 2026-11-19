@@ -499,6 +499,9 @@ def resolve_model_path(model_arg, models_dir):
     """
     if not model_arg:
         # Default fallback
+        steel_path = models_dir / "steel_defects_hailo8.hef"
+        if steel_path.exists():
+            return steel_path
         tile_path = models_dir / "tile_hailo8.hef"
         if tile_path.exists():
             return tile_path

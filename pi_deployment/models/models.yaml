@@ -11,7 +11,7 @@ models:
     filename: steel_defects_hailo8.hef
     category: steel_defects
     task: detect
-    description: Steel surface defect detection (crazing, inclusion, patches, pitted surface, rolled-in scale, scratches)
+    description: Steel Defects
     classes:
       0: crazing
       1: inclusion
@@ -22,12 +22,12 @@ models:
   bottle:
     filename: bottle_hailo8.hef
     category: bottle
-    description: Bottle defect segmentation (broken large, broken small, contamination)
+    description: Bottle
   grid:
     filename: grid_hailo8.hef
     category: grid
-    description: Grid defect segmentation (bent, broken, glue, thread)
+    description: Grid
   tile:
     filename: tile_hailo8.hef
     category: tile
-    description: Tile defect segmentation (glue strip, oil, crack, gray stroke, rough)
+    description: Tile

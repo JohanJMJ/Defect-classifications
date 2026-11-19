@@ -153,7 +153,7 @@ class HailoVisionEngine:
         self.current_model_name = model_name
         return True
 
-    def infer(self, image_bgr, model_name="tile", conf_thresh=0.25, iou_thresh=0.50, image_name=None):
+    def infer(self, image_bgr, model_name="steel_defects", conf_thresh=0.25, iou_thresh=0.50, image_name=None):
         """
         Runs visual inference on an input BGR OpenCV image.
         Returns:

@@ -36,10 +36,10 @@ def get_available_models():
 
     # Fallback default models list
     return {
-        "steel_defects": {"category": "steel_defects", "description": "Steel surface defect detection (crazing, inclusion, patches, pitted, scale, scratches)"},
-        "tile": {"category": "tile", "description": "Tile surface defects (glue strip, oil, crack)"},
-        "bottle": {"category": "bottle", "description": "Bottle defect segmentation (broken, contamination)"},
-        "grid": {"category": "grid", "description": "Grid defects (bent, broken, glue)"},
+        "steel_defects": {"category": "steel_defects", "description": "Steel Defects"},
+        "tile": {"category": "tile", "description": "Tile"},
+        "bottle": {"category": "bottle", "description": "Bottle"},
+        "grid": {"category": "grid", "description": "Grid"},
     }
 
 def get_system_telemetry():

@@ -342,7 +342,7 @@ function setupModelSelector() {
 
 function updateModelBanner(cat) {
     const selectedText = modelSelect.options[modelSelect.selectedIndex].text;
-    modelDesc.innerHTML = `Active Model: <strong>${cat.toUpperCase()}</strong> &bull; ${selectedText}`;
+    modelDesc.innerHTML = `Active Model: <strong>${selectedText}</strong>`;
 }
 
 function loadSamplesForCategory(category) {
