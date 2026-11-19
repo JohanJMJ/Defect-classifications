@@ -50,7 +50,7 @@ advisory_lock = threading.Lock()
 def _async_llama_worker(inspection_id, category, detections, image_shape, rule_eval):
     t0 = time.perf_counter()
     try:
-        print(f"[Async Llama] Running Llama 3B for Inspection #{inspection_id} on Pi 5 ARM CPU...")
+        print(f"[Async Llama] Running Llama advisory ({llama_engine.backend}) for Inspection #{inspection_id}...")
         llama_text, llama_lat = llama_engine.generate_advisory(
             category, detections, image_shape, rule_eval
         )
@@ -152,10 +152,10 @@ def api_telemetry():
     telemetry["llama_backend"] = llama_engine.backend
     telemetry["llama_ram_disk"] = getattr(llama_engine, "is_ram_disk", False)
     telemetry["llama_model_name"] = llama_engine.model_path.name if getattr(llama_engine, "model_path", None) else "None"
-    if getattr(llama_engine, "is_ram_disk", False):
+    if llama_engine.backend == "server":
+        telemetry["llama_location"] = "In-Memory Daemon (RAM)"
+    elif getattr(llama_engine, "is_ram_disk", False):
         telemetry["llama_location"] = "RAM (/dev/shm)"
-    elif llama_engine.backend == "server":
-        telemetry["llama_location"] = "In-Memory Server"
     elif llama_engine.backend == "executorch":
         telemetry["llama_location"] = "Disk (MicroSD)"
     else:

@@ -1,0 +1,15 @@
+[Unit]
+Description=Llama In-Memory Persistent Daemon for Edge QC Advisory
+After=network.target
+
+[Service]
+Type=simple
+User=raspberrypi5
+WorkingDirectory=/home/raspberrypi5/Defect-classifications/pi_deployment
+ExecStart=/home/raspberrypi5/Defect-classifications/pi_deployment/start_llama_daemon.sh --foreground
+Restart=always
+RestartSec=3
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

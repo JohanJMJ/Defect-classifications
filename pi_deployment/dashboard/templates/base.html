@@ -135,11 +135,11 @@
 
                         const llamaEl = document.getElementById('llamaStatus');
                         if (llamaEl) {
-                            if (t.llama_ram_disk) {
-                                llamaEl.innerText = 'ExecuTorch (RAM)';
+                            if (t.llama_backend === 'server') {
+                                llamaEl.innerText = 'Daemon (In-Memory)';
                                 llamaEl.className = 'hud-val text-green';
-                            } else if (t.llama_backend === 'server') {
-                                llamaEl.innerText = 'Server (In-Memory)';
+                            } else if (t.llama_ram_disk) {
+                                llamaEl.innerText = 'ExecuTorch (RAM)';
                                 llamaEl.className = 'hud-val text-green';
                             } else if (t.llama_backend === 'executorch') {
                                 llamaEl.innerText = 'ExecuTorch (Disk)';
@@ -152,11 +152,11 @@
 
                         const chipLlama = document.getElementById('chipLlamaHw');
                         if (chipLlama) {
-                            if (t.llama_ram_disk) {
-                                chipLlama.innerText = 'ExecuTorch (RAM /dev/shm)';
+                            if (t.llama_backend === 'server') {
+                                chipLlama.innerText = 'In-Memory Daemon (RAM)';
                                 chipLlama.className = 'chip chip-green';
-                            } else if (t.llama_backend === 'server') {
-                                chipLlama.innerText = 'In-Memory Server';
+                            } else if (t.llama_ram_disk) {
+                                chipLlama.innerText = 'ExecuTorch (RAM /dev/shm)';
                                 chipLlama.className = 'chip chip-green';
                             } else if (t.llama_backend === 'executorch') {
                                 chipLlama.innerText = 'ExecuTorch (Disk)';

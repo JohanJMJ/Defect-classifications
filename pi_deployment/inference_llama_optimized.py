@@ -420,21 +420,23 @@ def evaluate_qc_rules(detections, image_shape):
 class LlamaAdvisoryEngine:
     """
     Multi-backend Llama client:
-      - 'executorch': Invokes ARM64 llama_main executable directly.
+      - 'auto': Connects to in-memory persistent daemon if active (0s cold load), else ExecuTorch.
       - 'server': Uses persistent HTTP connection to llama-server (0s cold load!).
+      - 'executorch': Invokes ARM64 llama_main executable directly.
     """
 
     def __init__(
         self,
-        backend="executorch",
+        backend="auto",
         runner_path=DEFAULT_LLAMA_RUNNER,
         model_path=DEFAULT_LLAMA_MODEL,
         tokenizer_path=DEFAULT_LLAMA_TOKENIZER,
         server_url="http://127.0.0.1:8080/completion",
-        max_tokens=35,
+        max_tokens=48,
         temperature=0.1,
         timeout=180,
     ):
+        self.requested_backend = backend
         self.backend = backend
         self.runner_path = Path(runner_path)
         self.model_path = Path(model_path)
@@ -445,6 +447,30 @@ class LlamaAdvisoryEngine:
         self.timeout = int(timeout)
 
     def validate(self):
+        # Auto-detect if persistent daemon is listening
+        if self.backend == "auto":
+            base_url = self.server_url.rsplit("/", 1)[0]
+            server_listening = False
+            for probe_path in ["/health", ""]:
+                try:
+                    req = urllib.request.Request(
+                        base_url + probe_path,
+                        headers={"User-Agent": "Hailo-Pi5-Probe"},
+                    )
+                    with urllib.request.urlopen(req, timeout=0.5) as resp:
+                        if resp.status in (200, 301, 302, 404):
+                            server_listening = True
+                            break
+                except Exception:
+                    pass
+
+            if server_listening:
+                self.backend = "server"
+                print(f"[Llama] ⚡ Connected to In-Memory Persistent Daemon on {self.server_url} (0s startup latency, ~2.5s generation)!")
+            else:
+                self.backend = "executorch"
+                print("[Llama] Persistent daemon not active on port 8080. Using ExecuTorch fallback.")
+
         if self.backend == "executorch":
             required = [
                 ("Llama runner", self.runner_path),
@@ -483,7 +509,6 @@ class LlamaAdvisoryEngine:
                 with urllib.request.urlopen(req, timeout=2) as resp:
                     pass
             except Exception:
-                # Many servers don't have /health, test completion endpoint
                 pass
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
@@ -501,7 +526,7 @@ class LlamaAdvisoryEngine:
 
         prompt = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"QA Inspector. Exactly 1 brief sentence per bullet.\n"
+            f"QA Inspector. Exactly 1 sentence per bullet (max 12 words each).\n"
             f"Example:\n"
             f"- Assessment: Bent grid strut reduces mechanical shear resistance.\n"
             f"- Action: Divert part to rework, inspect stamping die.<|eot_id|>\n"
@@ -556,10 +581,21 @@ class LlamaAdvisoryEngine:
                     else:
                         content = resp_json.get("content", "").strip()
                     if content:
+                        severity = rule_eval.get("severity", "CRITICAL")
+                        if not content.startswith("- Severity:") and not content.startswith("• Severity:"):
+                            if content.startswith("- Assessment:") or content.startswith("Assessment:"):
+                                content = f"- Severity: {severity}\n" + content
+                            else:
+                                content = f"- Severity: {severity}\n- Assessment: " + content.lstrip("- ")
+                        if "- Action:" not in content and "Action:" not in content:
+                            content = content.rstrip().rstrip(".") + f".\n- Action: {rule_eval.get('rule_action', 'Quarantine part and inspect tooling.')}"
                         return content
             except Exception as e:
-                print(f"[Warn] Server backend failed ({e}). Falling back to rule advice.")
-                return f"[Rule Fallback] {rule_eval['rule_action']}"
+                print(f"[Warn] Persistent server query failed ({e}). Falling back to local runner...")
+                if self.runner_path.is_file() and self.model_path.is_file():
+                    pass # Continue down to Path B ExecuTorch
+                else:
+                    return f"[Rule Fallback] {rule_eval['rule_action']}"
 
         # -------------------------------------------------------------
         # Path B: ExecuTorch CLI runner
@@ -712,9 +748,9 @@ def parse_args():
     # Llama Optimization Flags
     parser.add_argument(
         "--llama-backend",
-        choices=["executorch", "server"],
-        default="executorch",
-        help="Llama engine backend. 'server' uses persistent warm HTTP server.",
+        choices=["auto", "server", "executorch"],
+        default="auto",
+        help="Llama engine backend. 'auto' connects to in-memory persistent daemon if running (0s cold load), else ExecuTorch.",
     )
     parser.add_argument(
         "--llama-server-url",
