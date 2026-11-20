@@ -22,12 +22,31 @@ models:
   bottle:
     filename: bottle_hailo8.hef
     category: bottle
+    task: segment
     description: Bottle
+    classes:
+      0: broken_large
+      1: broken_small
+      2: contamination
   grid:
     filename: grid_hailo8.hef
     category: grid
+    task: segment
     description: Grid
+    classes:
+      0: bent
+      1: broken
+      2: glue
+      3: metal_contamination
+      4: thread
   tile:
     filename: tile_hailo8.hef
     category: tile
+    task: segment
     description: Tile
+    classes:
+      0: crack
+      1: glue_strip
+      2: gray_stroke
+      3: oil
+      4: rough
