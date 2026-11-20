@@ -564,18 +564,27 @@ function renderInspectionResults(insp) {
 
     // 2. Verdict Banner Card
     verdictCard.className = 'verdict-card';
-    if (insp.verdict === 'PASS') {
+    const verd = (insp.verdict || 'PASS').toUpperCase();
+    if (verd === 'PASS') {
         verdictCard.classList.add('verdict-pass');
         verdictTitle.innerText = 'PASS';
-        verdictSummary.innerText = 'Component satisfies quality threshold. No critical surface anomaly detected.';
-    } else if (insp.verdict === 'FLAGGED_MONITOR') {
-        verdictCard.classList.add('verdict-monitor');
-        verdictTitle.innerText = 'MONITOR';
-        verdictSummary.innerText = 'Minor surface anomaly detected. Routing to secondary inspection.';
+        if (insp.severity === 'Minor') {
+            verdictSummary.innerText = 'Minor surface variance detected within allowable visual tolerance. Cleared to proceed.';
+        } else {
+            verdictSummary.innerText = 'Component satisfies quality threshold. No significant defect detected.';
+        }
+    } else if (verd === 'DIVERT') {
+        verdictCard.classList.add('verdict-divert');
+        verdictTitle.innerText = 'DIVERT';
+        verdictSummary.innerText = 'Moderate anomaly detected. Divert component from main conveyor to buffer/rework lane.';
+    } else if (verd === 'INSPECT' || verd === 'FLAGGED_MONITOR' || verd === 'MONITOR') {
+        verdictCard.classList.add('verdict-inspect');
+        verdictTitle.innerText = 'INSPECT';
+        verdictSummary.innerText = 'Major surface defect detected. Hold component for secondary manual inspector sign-off.';
     } else {
         verdictCard.classList.add('verdict-reject');
         verdictTitle.innerText = 'REJECT';
-        verdictSummary.innerText = 'Defect exceeds tolerance limit. Divert part from production line.';
+        verdictSummary.innerText = 'Critical structural defect exceeds tolerance. Auto-reject to scrap bin immediately.';
     }
 
     // 3. Vision Subsystem Metrics
@@ -594,9 +603,9 @@ function renderInspectionResults(insp) {
     } else {
         if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
         valSeverity.className = 'severity-badge';
-        const sev = (insp.severity || 'NONE').toLowerCase();
-        valSeverity.classList.add(`badge-${sev}`);
-        valSeverity.innerText = insp.severity || 'NONE';
+        const sevName = insp.severity || 'None';
+        valSeverity.classList.add(`badge-${sevName.toLowerCase()}`);
+        valSeverity.innerText = sevName;
         valLlamaLatency.innerText = `Llama: ${insp.latency_llama_ms || 25.0} ms`;
 
         // Parse structured Llama text
@@ -607,10 +616,12 @@ function renderInspectionResults(insp) {
     // 5. Flash Hardware GPIO simulation indicator
     flashGpioIndicator(insp.verdict);
 
-    // 6. Emergency Audio-Visual Alarm Banner
-    if (insp.verdict === 'REJECT' || insp.severity === 'CRITICAL' || insp.severity === 'HIGH') {
+    // 6. Emergency Audio-Visual Alarm Banner (Only for Critical and Major!)
+    const sName = (insp.severity || '').toLowerCase();
+    const isMajorOrCritical = (sName === 'critical' || sName === 'major' || verd === 'REJECT' || insp.trigger_banner);
+    if (isMajorOrCritical) {
         triggerSevereDefectAlarm(insp);
-    } else if (insp.verdict === 'PASS') {
+    } else {
         silenceSevereDefectAlarm();
     }
 
@@ -682,8 +693,9 @@ function parseAndDisplayLlama(llamaText, fallbackAction) {
         } else if (clean.toLowerCase().startsWith('action:')) {
             action = clean.substring(7).trim();
         } else if (clean.toLowerCase().startsWith('severity:')) {
-            const sev = clean.substring(9).trim().toUpperCase();
-            if (['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'NONE'].includes(sev)) {
+            const sev = clean.substring(9).trim();
+            const sevUpper = sev.toUpperCase();
+            if (['NONE', 'MINOR', 'MODERATE', 'MAJOR', 'CRITICAL', 'LOW', 'MEDIUM', 'HIGH'].includes(sevUpper)) {
                 valSeverity.className = 'severity-badge badge-' + sev.toLowerCase();
                 valSeverity.innerText = sev;
             }
@@ -702,13 +714,21 @@ function flashGpioIndicator(verdict) {
 
     [g, y, r, b].forEach(el => el.classList.remove('active'));
 
-    if (verdict === 'PASS') {
+    const v = (verdict || 'PASS').toUpperCase();
+    if (v === 'PASS') {
         g.classList.add('active');
         setTimeout(() => g.classList.remove('active'), 1500);
-    } else if (verdict === 'FLAGGED_MONITOR') {
+    } else if (v === 'DIVERT') {
         y.classList.add('active');
         setTimeout(() => y.classList.remove('active'), 1800);
-    } else if (verdict === 'REJECT') {
+    } else if (v === 'INSPECT' || v === 'FLAGGED_MONITOR') {
+        y.classList.add('active');
+        b.classList.add('active');
+        setTimeout(() => {
+            y.classList.remove('active');
+            b.classList.remove('active');
+        }, 1200);
+    } else if (v === 'REJECT') {
         r.classList.add('active');
         b.classList.add('active');
         setTimeout(() => {
@@ -724,10 +744,17 @@ function prependRecentInspection(insp) {
 
     let html = '';
     recentInspections.forEach(r => {
-        const v = r.verdict;
-        const badgeClass = v === 'PASS' ? 'badge-pass' : (v === 'REJECT' ? 'badge-reject' : 'badge-monitor');
+        const v = (r.verdict || 'PASS').toUpperCase();
+        let badgeClass = 'badge-pass';
+        if (v === 'REJECT') badgeClass = 'badge-reject';
+        else if (v === 'DIVERT') badgeClass = 'badge-divert';
+        else if (v === 'INSPECT' || v === 'FLAGGED_MONITOR') badgeClass = 'badge-inspect';
+        else badgeClass = 'badge-pass';
+
         const conf = r.confidence ? (r.confidence * 100).toFixed(1) + '%' : '--';
         const area = r.mask_area_pct ? r.mask_area_pct.toFixed(2) + '%' : '0.0%';
+        const sevName = r.severity || 'None';
+        const sevClass = 'badge-' + sevName.toLowerCase();
 
         html += `
             <tr>
@@ -739,7 +766,7 @@ function prependRecentInspection(insp) {
                 <td>${area}</td>
                 <td>${conf}</td>
                 <td><span class="status-badge ${badgeClass}">${v}</span></td>
-                <td><span class="severity-pill">${r.severity}</span></td>
+                <td><span class="severity-pill ${sevClass}">${sevName}</span></td>
                 <td style="font-size: 0.8rem;">${r.latency_vision_ms}ms</td>
             </tr>
         `;
@@ -867,13 +894,21 @@ window.testAlert = function(verdict) {
     flashGpioIndicator(verdict);
     if (verdict === 'REJECT') {
         triggerSevereDefectAlarm({
-            component_id: 'SIMULATED-TEST',
-            defect_class: 'Critical Surface Anomaly',
+            component_id: 'SIMULATED-CRITICAL',
+            defect_class: 'Critical Fracture',
             mask_area_pct: 14.8,
-            severity: 'CRITICAL',
+            severity: 'Critical',
             verdict: 'REJECT'
         });
-    } else if (verdict === 'PASS') {
+    } else if (verdict === 'INSPECT') {
+        triggerSevereDefectAlarm({
+            component_id: 'SIMULATED-MAJOR',
+            defect_class: 'Major Crack',
+            mask_area_pct: 6.2,
+            severity: 'Major',
+            verdict: 'INSPECT'
+        });
+    } else if (verdict === 'PASS' || verdict === 'DIVERT') {
         silenceSevereDefectAlarm();
     }
     fetch('/api/alerts/test', {

@@ -278,18 +278,19 @@ def api_inspect():
     defect_label = detections[0]["label"] if defect_detected else "None"
 
     is_continuous_mode = request.form.get("continuous") == "1"
+    run_llama = rule_eval.get("run_llama", True) and not is_continuous_mode
 
-    if is_continuous_mode:
-        # In fast continuous mode, use instant deterministic fast-path triage (< 1ms)
+    if not run_llama:
+        # Fast-Path Rule Analysis for None/Minor tiers OR continuous mode (< 0.5ms, NO LLaMA!)
         llama_text = (
-            f"• Severity: {rule_eval.get('severity', 'NONE')}\n"
-            f"• Assessment: Continuous inspection triage verified ({rule_eval.get('total_mask_pct', 0)}% defect area).\n"
-            f"• Action: {rule_eval.get('rule_action', 'Continue continuous conveyor line.')}"
+            f"• Severity: {rule_eval.get('severity', 'None')}\n"
+            f"• Assessment: Fast-Path Rule Engine ({rule_eval.get('total_mask_pct', 0)}% area, fuzzy score {rule_eval.get('fuzzy_score', 0):.0f}/100).\n"
+            f"• Action: {rule_eval.get('rule_action', 'Continue standard conveyor flow.')}"
         )
-        llama_lat = 0.4
+        llama_lat = 0.3
         llama_status = "completed"
     else:
-        # Asynchronous decoupled Llama: Return Vision results immediately, generate Llama in background!
+        # Asynchronous decoupled Llama for Moderate, Major, Critical: Return Vision results immediately, generate Llama in background!
         llama_text = "PENDING"
         llama_lat = 0.0
         llama_status = "pending"
@@ -317,6 +318,8 @@ def api_inspect():
         "mask_area_pct": rule_eval["total_mask_pct"],
         "verdict": rule_eval["verdict"],
         "severity": rule_eval["severity"],
+        "fuzzy_score": rule_eval.get("fuzzy_score", 0.0),
+        "trigger_banner": rule_eval.get("trigger_banner", False),
         "rule_action": rule_eval["rule_action"],
         "llama_advisory": llama_text,
         "latency_vision_ms": vision_lat,
@@ -330,8 +333,8 @@ def api_inspect():
     record_data["detections"] = json_detections
     record_data["llama_status"] = llama_status
 
-    # Launch Llama 3B in background worker thread so Vision results return immediately (< 25 ms)!
-    if not is_continuous_mode:
+    # Launch Llama background worker ONLY for Moderate, Major, Critical (bypassed for None and Minor!)
+    if run_llama:
         with advisory_lock:
             advisory_jobs[inspection_id] = {
                 "status": "pending",
