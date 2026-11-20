@@ -282,12 +282,16 @@ def api_inspect():
 
     if not run_llama:
         # Fast-Path Rule Analysis for None/Minor tiers OR continuous mode (< 0.5ms, NO LLaMA!)
-        llama_text = (
-            f"• Severity: {rule_eval.get('severity', 'None')}\n"
-            f"• Assessment: Fast-Path Rule Engine ({rule_eval.get('total_mask_pct', 0)}% area, fuzzy score {rule_eval.get('fuzzy_score', 0):.0f}/100).\n"
-            f"• Action: {rule_eval.get('rule_action', 'Continue standard conveyor flow.')}"
-        )
-        llama_lat = 0.3
+        if rule_eval.get("severity") == "None":
+            llama_text = ""
+            llama_lat = 0.0
+        else:
+            llama_text = (
+                f"• Severity: {rule_eval.get('severity', 'Minor')}\n"
+                f"• Assessment: Fast-Path Rule Engine ({rule_eval.get('total_mask_pct', 0):.2f}% area, fuzzy score {rule_eval.get('fuzzy_score', 0):.0f}/100).\n"
+                f"• Action: {rule_eval.get('rule_action', 'Continue standard conveyor flow.')}"
+            )
+            llama_lat = 0.3
         llama_status = "completed"
     else:
         # Asynchronous decoupled Llama for Moderate, Major, Critical: Return Vision results immediately, generate Llama in background!

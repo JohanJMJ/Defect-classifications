@@ -72,6 +72,11 @@ const valAction = document.getElementById('valAction');
 const llamaLoadingBox = document.getElementById('llamaLoadingBox');
 const llamaTimer = document.getElementById('llamaTimer');
 const advisoryContentBox = document.getElementById('advisoryContentBox');
+const advisorySeverityRow = document.getElementById('advisorySeverityRow');
+const llamaIdleBar = document.getElementById('llamaIdleBar');
+const llamaIdleText = document.getElementById('llamaIdleText');
+
+const detailModal = document.getElementById('detailModal');
 
 let llamaPollInterval = null;
 let llamaTimerInterval = null;
@@ -102,6 +107,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Run inspect button
     btnRunInspect.addEventListener('click', () => {
         executeInspection();
+    });
+
+    // Modal backdrop and Escape key listeners
+    if (detailModal) {
+        detailModal.addEventListener('click', (e) => {
+            if (e.target === detailModal) closeModal();
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && detailModal && !detailModal.classList.contains('hidden')) {
+            closeModal();
+        }
+    });
+    window.addEventListener('popstate', () => {
+        if (detailModal && !detailModal.classList.contains('hidden')) {
+            closeModal(false);
+        }
     });
 
     // Toggle Raw vs Annotated image
@@ -594,23 +616,55 @@ function renderInspectionResults(insp) {
     valVisionLatency.innerText = (insp.latency_vision_ms || 11.8) + ' ms';
 
     const coverage = Math.min(100, (insp.mask_area_pct || 0) * 5); // visual scaling
-    fillCoverage.style.width = coverage + '%';
-    labelCoverage.innerText = (insp.mask_area_pct || 0).toFixed(2) + '%';
+    if (fillCoverage) fillCoverage.style.width = coverage + '%';
+    if (labelCoverage) labelCoverage.innerText = (insp.mask_area_pct || 0).toFixed(2) + '%';
 
-    // 4. Llama Advisory (Decoupled Asynchronous Execution)
-    if (insp.llama_status === 'pending' && insp.id) {
-        startLlamaPolling(insp.id, insp.rule_action);
-    } else {
+    // 4. Llama Advisory (Option C: Collapsed for None/Minor, Expanded for Moderate/Major/Critical)
+    const sev = (insp.severity || 'None').toUpperCase();
+    const hasDefects = Boolean(insp.defect_detected && insp.defect_class && insp.defect_class !== 'None');
+
+    if (sev === 'NONE' || !hasDefects) {
+        // When there is no defect: Just show simple "Llama Idle" - no green box, no details button
         if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
-        valSeverity.className = 'severity-badge';
-        const sevName = insp.severity || 'None';
-        valSeverity.classList.add(`badge-${sevName.toLowerCase()}`);
-        valSeverity.innerText = sevName;
-        valLlamaLatency.innerText = `Llama: ${insp.latency_llama_ms || 25.0} ms`;
+        if (advisoryContentBox) advisoryContentBox.classList.add('hidden');
+        if (advisorySeverityRow) advisorySeverityRow.classList.add('hidden');
 
-        // Parse structured Llama text
-        const text = insp.llama_advisory || insp.rule_action || '';
-        parseAndDisplayLlama(text, insp.rule_action);
+        if (llamaIdleBar) {
+            llamaIdleBar.classList.remove('hidden');
+            if (llamaIdleText) llamaIdleText.innerText = 'Llama Idle';
+        }
+        valLlamaLatency.innerText = 'Llama: Idle';
+    } else if (sev === 'MINOR') {
+        // Minor cosmetic flaw: Keep simple and clean without green box or details button
+        if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
+        if (advisoryContentBox) advisoryContentBox.classList.add('hidden');
+        if (advisorySeverityRow) advisorySeverityRow.classList.add('hidden');
+
+        if (llamaIdleBar) {
+            llamaIdleBar.classList.remove('hidden');
+            if (llamaIdleText) llamaIdleText.innerText = 'Llama Idle (Minor Variance Passed)';
+        }
+        valLlamaLatency.innerText = 'Rule: <0.3 ms';
+    } else {
+        // Option C - MODERATE, MAJOR, CRITICAL: Fully expand LLaMA card
+        if (llamaIdleBar) llamaIdleBar.classList.add('hidden');
+        if (advisorySeverityRow) {
+            advisorySeverityRow.classList.remove('hidden');
+            valSeverity.className = 'severity-badge badge-' + sev.toLowerCase();
+            valSeverity.innerText = sev;
+        }
+        if (advisoryContentBox) advisoryContentBox.classList.remove('hidden');
+
+        if (insp.llama_status === 'pending' && insp.id) {
+            startLlamaPolling(insp.id, insp.rule_action);
+        } else {
+            if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
+            valLlamaLatency.innerText = `Llama: ${insp.latency_llama_ms || 25.0} ms`;
+
+            // Parse structured Llama text
+            const text = insp.llama_advisory || insp.rule_action || '';
+            parseAndDisplayLlama(text, insp.rule_action);
+        }
     }
 
     // 5. Flash Hardware GPIO simulation indicator
@@ -635,6 +689,9 @@ function startLlamaPolling(inspId, fallbackAction) {
     if (llamaTimerInterval) clearInterval(llamaTimerInterval);
 
     activeLlamaInspId = inspId;
+    if (llamaIdleBar) llamaIdleBar.classList.add('hidden');
+    if (advisorySeverityRow) advisorySeverityRow.classList.remove('hidden');
+    if (advisoryContentBox) advisoryContentBox.classList.remove('hidden');
     if (llamaLoadingBox) llamaLoadingBox.classList.remove('hidden');
     valLlamaLatency.innerText = 'Llama: Analyzing...';
     valAssessment.innerText = 'Evaluating surface morphology and defect density on Pi 5 ARM CPU...';
@@ -917,3 +974,248 @@ window.testAlert = function(verdict) {
         body: JSON.stringify({ verdict: verdict }),
     }).catch(() => {});
 };
+
+// ----------------------------------------------------------------------
+// Direct Inspection Audit Detail Modal (Pattern A: In-Modal Diagnostics & History)
+// ----------------------------------------------------------------------
+let currentModalInspection = null;
+let currentModalTab = 'diagnostics';
+
+function openInspectionDetail(inspOrId) {
+    let insp = null;
+    if (typeof inspOrId === 'object' && inspOrId !== null) {
+        insp = inspOrId;
+    } else if (typeof inspOrId === 'number' || typeof inspOrId === 'string') {
+        insp = recentInspections.find(x => x.id === Number(inspOrId));
+    }
+
+    if (!insp) {
+        insp = currentInspectionData || recentInspections[0];
+    }
+
+    if (!insp) {
+        const table = document.querySelector('.recent-inspections-section');
+        if (table) {
+            table.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            window.location.href = '/history';
+        }
+        return;
+    }
+
+    currentModalInspection = insp;
+    const modal = document.getElementById('detailModal');
+    if (!modal) return;
+
+    // Push state so browser's Back button smoothly closes the modal without page reload
+    if (!history.state || !history.state.modalOpen) {
+        history.pushState({ modalOpen: true }, '');
+    }
+
+    switchModalTab('diagnostics');
+    modal.classList.remove('hidden');
+}
+
+function switchModalTab(tabName) {
+    currentModalTab = tabName;
+    const btnDiag = document.getElementById('modalTabBtnDiag');
+    const btnHist = document.getElementById('modalTabBtnHist');
+
+    if (btnDiag && btnHist) {
+        if (tabName === 'diagnostics') {
+            btnDiag.classList.add('active');
+            btnHist.classList.remove('active');
+        } else {
+            btnDiag.classList.remove('active');
+            btnHist.classList.add('active');
+        }
+    }
+
+    renderModalView(tabName);
+}
+
+function renderModalView(tabName) {
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    if (!modalTitle || !modalBody || !currentModalInspection) return;
+
+    const insp = currentModalInspection;
+    modalTitle.innerText = `Inspection Audit #${insp.id || '--'} (${insp.component_id || 'UNKNOWN'})`;
+
+    if (tabName === 'diagnostics') {
+        const v = (insp.verdict || 'PASS').toUpperCase();
+        let badgeClass = 'badge-pass';
+        if (v === 'REJECT') badgeClass = 'badge-reject';
+        else if (v === 'DIVERT') badgeClass = 'badge-divert';
+        else if (v === 'INSPECT' || v === 'FLAGGED_MONITOR') badgeClass = 'badge-inspect';
+
+        const sev = insp.severity || 'None';
+        const sevClass = 'badge-' + sev.toLowerCase();
+        const conf = insp.confidence ? (insp.confidence * 100).toFixed(1) + '%' : '--';
+        const area = insp.mask_area_pct ? insp.mask_area_pct.toFixed(2) + '%' : '0.0%';
+        const fuzzy = insp.fuzzy_score !== undefined ? `${Number(insp.fuzzy_score).toFixed(1)} / 100` : '--';
+
+        modalBody.innerHTML = `
+            <div class="modal-detail-grid">
+                <div class="modal-images">
+                    <div class="image-preview-box">
+                        <div class="preview-title">Annotated Optical Frame</div>
+                        <img src="${insp.annotated_path || insp.image_path || ''}" class="modal-preview-img" alt="Annotated">
+                    </div>
+                    <div class="image-preview-box">
+                        <div class="preview-title">Raw Optical Capture</div>
+                        <img src="${insp.image_path || ''}" class="modal-preview-img" alt="Raw">
+                    </div>
+                </div>
+
+                <div class="modal-data">
+                    <div class="detail-row">
+                        <span class="detail-label">Quality Decision:</span>
+                        <span class="status-badge ${badgeClass}">${v}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Assessed Severity:</span>
+                        <span class="severity-badge ${sevClass}">${sev}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Fuzzy Risk Score:</span>
+                        <strong>${fuzzy}</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Component Category:</span>
+                        <span>${insp.model_category || '--'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Defect Classification:</span>
+                        <span>${insp.defect_class || 'None'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Model Confidence:</span>
+                        <span>${conf}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Surface Defect Area:</span>
+                        <span>${area}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Hailo-8 Vision Latency:</span>
+                        <span class="text-green">${insp.latency_vision_ms || '--'} ms</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Llama Advisory Latency:</span>
+                        <span class="text-cyan">${insp.latency_llama_ms || 0} ms</span>
+                    </div>
+
+                    <div class="modal-advisory-block">
+                        <div class="advisory-title">Llama Advisory &amp; Action Recommendation</div>
+                        <pre class="advisory-pre">${insp.llama_advisory || insp.rule_action || 'Surface uniformity nominal. Component cleared.'}</pre>
+                    </div>
+
+                    <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+                        <button type="button" class="btn-secondary btn-sm" onclick="switchModalTab('history')">
+                            View Recent Batch History
+                        </button>
+                        <button type="button" class="btn-primary btn-sm" onclick="closeModal()">Return to Live Studio</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else {
+        // Tab 2: Embedded Recent Batch History
+        const cat = insp.model_category || '';
+        const catLabel = cat.replace('_', ' ').toUpperCase();
+        modalBody.innerHTML = `
+            <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                <span class="text-muted" style="font-size: 0.82rem;">
+                    Recent production batch runs: <strong class="text-cyan">${catLabel}</strong>
+                </span>
+                <span class="text-muted" style="font-size: 0.75rem;">Showing latest line inspections</span>
+            </div>
+            <div class="modal-history-container">
+                <div class="modal-empty-state" id="modalHistoryLoading">Loading recent batch records from database...</div>
+            </div>
+            <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn-secondary btn-sm" onclick="switchModalTab('diagnostics')">
+                    Back to Diagnostics
+                </button>
+                <button type="button" class="btn-primary btn-sm" onclick="closeModal()">Return to Live Studio</button>
+            </div>
+        `;
+
+        const modelParam = cat ? `model=${encodeURIComponent(cat)}&` : '';
+        fetch(`/api/history?${modelParam}limit=12`)
+            .then(r => r.json())
+            .then(data => {
+                const container = modalBody.querySelector('.modal-history-container');
+                if (!container) return;
+                const rows = data.inspections || [];
+                if (rows.length === 0) {
+                    container.innerHTML = `<div class="modal-empty-state">No prior batch records found for model <code>${cat || '--'}</code>.</div>`;
+                    return;
+                }
+
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#ID</th>
+                                <th>Time</th>
+                                <th>Serial</th>
+                                <th>Defect</th>
+                                <th>Area</th>
+                                <th>Decision</th>
+                                <th>Severity</th>
+                                <th>Vision Lat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                rows.forEach(r => {
+                    const verd = (r.verdict || 'PASS').toUpperCase();
+                    let bClass = 'badge-pass';
+                    if (verd === 'REJECT') bClass = 'badge-reject';
+                    else if (verd === 'DIVERT') bClass = 'badge-divert';
+                    else if (verd === 'INSPECT' || verd === 'FLAGGED_MONITOR') bClass = 'badge-inspect';
+
+                    const sName = r.severity || 'None';
+                    const sClass = 'badge-' + sName.toLowerCase();
+                    const isCurrent = r.id === insp.id;
+                    const currentBadge = isCurrent ? ' <span class="category-tag" style="background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); font-size: 0.68rem; margin-left: 4px;">CURRENT</span>' : '';
+                    const rowHighlight = isCurrent ? ' style="background: rgba(6, 182, 212, 0.08);"' : '';
+
+                    html += `
+                        <tr${rowHighlight}>
+                            <td><strong>#${r.id}</strong>${currentBadge}</td>
+                            <td class="text-muted" style="font-size: 0.8rem;">${r.timestamp.split(' ')[1] || r.timestamp}</td>
+                            <td><code>${r.component_id}</code></td>
+                            <td>${r.defect_class || 'None'}</td>
+                            <td>${r.mask_area_pct ? r.mask_area_pct.toFixed(2) + '%' : '0.0%'}</td>
+                            <td><span class="status-badge ${bClass}">${verd}</span></td>
+                            <td><span class="severity-pill ${sClass}">${sName}</span></td>
+                            <td style="font-size: 0.8rem;">${r.latency_vision_ms || 0}ms</td>
+                        </tr>
+                    `;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                const container = modalBody.querySelector('.modal-history-container');
+                if (container) {
+                    container.innerHTML = `<div class="modal-empty-state text-red">Failed to load history: ${err.message}</div>`;
+                }
+            });
+    }
+}
+
+function closeModal(popState = true) {
+    const modal = document.getElementById('detailModal');
+    if (modal) modal.classList.add('hidden');
+    if (popState && history.state && history.state.modalOpen) {
+        history.back();
+    }
+}
+
+window.openInspectionDetail = openInspectionDetail;
+window.switchModalTab = switchModalTab;
+window.closeModal = closeModal;

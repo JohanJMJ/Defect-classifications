@@ -989,7 +989,29 @@ body.theme-light .progress-track {
     transition: width 0.4s ease;
 }
 
-/* Llama Advisory */
+/* Llama Advisory & Clean Idle State */
+.llama-idle-simple {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+body.theme-light .llama-idle-simple {
+    color: #64748B;
+}
+
+.dot-idle {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #64748B;
+    display: inline-block;
+}
+
 .advisory-severity-row {
     display: flex;
     align-items: center;
@@ -1268,6 +1290,45 @@ body.theme-light .llama-progress-track {
 
 body.theme-light .highlight-action {
     color: #B45309;
+}
+
+/* Card Inline Details Button */
+.btn-card-detail {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(139, 92, 246, 0.12);
+    border: 1px solid rgba(139, 92, 246, 0.45);
+    color: var(--accent-purple);
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.btn-card-detail:hover {
+    background: var(--accent-purple);
+    color: #FFFFFF;
+    border-color: var(--accent-purple);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.35);
+}
+
+body.theme-light .btn-card-detail {
+    background: #EDE9FE;
+    border-color: #C4B5FD;
+    color: #6D28D9;
+}
+
+body.theme-light .btn-card-detail:hover {
+    background: #7C3AED;
+    border-color: #7C3AED;
+    color: #FFFFFF;
 }
 
 /* GPIO Cluster */
@@ -1657,6 +1718,67 @@ body.theme-light .data-table tr:hover {
     color: var(--text-muted);
     font-size: 1.5rem;
     cursor: pointer;
+}
+
+/* Modal Pattern A: Sub-navigation & History Table */
+.modal-nav-tabs {
+    display: flex;
+    gap: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+}
+
+.modal-tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 0.84rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.modal-tab-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body.theme-light .modal-tab-btn:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.modal-tab-btn.active {
+    color: #FFFFFF;
+    background: var(--card-bg-light);
+    border: 1px solid var(--border-highlight);
+}
+
+body.theme-light .modal-tab-btn.active {
+    color: #0F172A;
+    background: #F1F5F9;
+}
+
+.modal-history-container {
+    background: #0D1322;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow-x: auto;
+    max-height: 480px;
+}
+
+body.theme-light .modal-history-container {
+    background: #F8FAFC;
+}
+
+.modal-empty-state {
+    padding: 30px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.88rem;
 }
 
 .modal-detail-grid {
