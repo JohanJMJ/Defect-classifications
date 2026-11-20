@@ -62,9 +62,8 @@ Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local deve
 Defect-classifications/
 ├── run_dashboard.py              # 1-Click launcher for PC Development (Simulation Mode)
 ├── requirements.txt              # Python dependencies (Flask, OpenCV, NumPy, Pillow, PyYAML)
-├── update_code.zip               # Lightweight deployment package for fast Raspberry Pi sync
 ├── README.md                     # Comprehensive documentation & deployment guide
-├── full_training/                # Production models for 15 categories (*_production_best.pt, 100 epochs)
+├── full_training/                # Production models (*_production_best.pt)
 ├── HAT+ quatization/             # Hailo AI HAT+ quantization and HEF compilation tools
 │   ├── compile_hef.py            # Python compiler script (YOLO .pt -> Hailo .hef)
 │   ├── run_compiler.sh           # Dockerized runner bridging host to Ubuntu 22.04 runtime
@@ -82,8 +81,8 @@ Defect-classifications/
     │   ├── config.py             # System telemetry, paths, and hardware monitor
     │   ├── templates/            # Offline HTML templates (base, index, history)
     │   └── static/               # Responsive CSS, icons, and async JavaScript polling
-    ├── models/                   # 9 Pre-compiled Hailo-8 HEF executables (26 TOPS)
-    ├── sample_images/            # Categorized test images for all 9 models
+    ├── models/                   # Pre-compiled Hailo-8 HEF executables (26 TOPS)
+    ├── sample_images/            # Categorized test images for models
     ├── service/                  # Systemd service for auto-start on factory boot
     ├── results/                  # Inference output directory (annotated images & reports)
     ├── inference.py              # Pure Native HailoRT CLI inference engine

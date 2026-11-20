@@ -145,7 +145,6 @@ class LlamaAdvisoryEngine:
         runner_path=None,
         model_path=None,
         tokenizer_path=None,
-        server_url="http://127.0.0.1:8080/completion",
         max_tokens=48,
         temperature=0.0,
     ):
@@ -154,7 +153,6 @@ class LlamaAdvisoryEngine:
         self.runner_path = Path(runner_path) if runner_path else disc_runner
         self.model_path = Path(model_path) if model_path else disc_model
         self.tokenizer_path = Path(tokenizer_path) if tokenizer_path else disc_tok
-        self.server_url = server_url
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
 

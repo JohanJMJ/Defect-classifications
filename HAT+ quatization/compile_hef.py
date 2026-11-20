@@ -17,8 +17,7 @@ from ultralytics import YOLO
 
 # Available categories
 AVAILABLE_CATEGORIES = [
-    "steel_defects", "bottle", "grid", "tile",
-    "leather", "metal_nut", "screw", "toothbrush", "transistor", "wood"
+    "steel_defects", "bottle", "grid", "tile"
 ]
 
 
