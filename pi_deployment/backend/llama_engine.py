@@ -103,8 +103,20 @@ def auto_discover_llama():
     return None, None, None
 
 
-# Domain-Specific Industrial Failure Modes & CAPA Knowledge Base
+# Domain-Specific Industrial Failure Modes & CAPA Knowledge Base (Active Models)
 INDUSTRIAL_KB = {
+    "steel_defects": {
+        "material": "Hot/Cold-Rolled Carbon Steel Sheet & Strip",
+        "failure_modes": "Crazing micro-cracks, non-metallic inclusions, surface patches, pitting corrosion, rolled-in oxide scale, longitudinal scratches",
+        "risk_threshold": "Surface cracks and rolled-in scale cause catastrophic tensile fracture under stamping loads (ASTM A1008/A568).",
+        "tooling_capa": "Inspect continuous caster mold level, check roughing stand roll wear, verify descaler spray pressure (>15 MPa), and clean coil guide rollers."
+    },
+    "steel": {
+        "material": "Hot/Cold-Rolled Carbon Steel Sheet & Strip",
+        "failure_modes": "Crazing micro-cracks, non-metallic inclusions, surface patches, pitting corrosion, rolled-in oxide scale, longitudinal scratches",
+        "risk_threshold": "Surface cracks and rolled-in scale cause catastrophic tensile fracture under stamping loads (ASTM A1008/A568).",
+        "tooling_capa": "Inspect continuous caster mold level, check roughing stand roll wear, verify descaler spray pressure (>15 MPa), and clean coil guide rollers."
+    },
     "tile": {
         "material": "Ceramic / Porcelain Flooring",
         "failure_modes": "Mechanical press stress cracks, thermal firing fractures, conveyor oil leaks, glue overflow",
@@ -117,83 +129,11 @@ INDUSTRIAL_KB = {
         "risk_threshold": "Neck defects destroy hermetic seal, causing pressure loss and microbial spoilage.",
         "tooling_capa": "Inspect blow-mold clamp alignment, check preform heater lamp calibration, inspect capper torque."
     },
-    "cable": {
-        "material": "Copper Conductor / Extruded PVC Sheath",
-        "failure_modes": "Conductor strand breakage, cut/pinched insulation, crimp deformation",
-        "risk_threshold": "Exposed copper causes dielectric breakdown, short circuits, and fire hazard.",
-        "tooling_capa": "Check wire-stripping blade clearance, inspect feed guide tension rollers, calibrate crimp applicator."
-    },
-    "capsule": {
-        "material": "Gelatin / HPMC Pharmaceutical Capsule",
-        "failure_modes": "Cap/body split, pinhole puncture, dosage leakage, surface dent",
-        "risk_threshold": "Wall rupture compromises active ingredient dosage integrity and shelf-life.",
-        "tooling_capa": "Inspect capsule rectifier track, check closing station pin depth, verify vacuum transfer cups."
-    },
-    "carpet": {
-        "material": "Woven Textile / Polypropylene Fiber",
-        "failure_modes": "Tuft pull-out, loop cut, metal particulate, uneven pile density",
-        "risk_threshold": "Thread tears propagate under foot traffic; metal fragments violate safety standards.",
-        "tooling_capa": "Examine tufting needle sharpness, check yarn tension brakes, sweep inline magnetic metal detector."
-    },
     "grid": {
         "material": "Stamped Sheet Metal / Aluminum Honeycomb",
         "failure_modes": "Bent mesh strut, broken weld node, adhesive drip, burr deformation",
         "risk_threshold": "Strut fractures reduce structural shear resistance and block airflow volume.",
         "tooling_capa": "Inspect stamping die clearance, examine spot-weld electrode tips, check trim blade burrs."
-    },
-    "hazelnut": {
-        "material": "Organic Food / Agricultural Nut",
-        "failure_modes": "Shell crack, insect bore hole, fungal aflatoxin mold, internal rot",
-        "risk_threshold": "Internal fungal rot or aflatoxins fail food safety standards (FDA/EU).",
-        "tooling_capa": "Calibrate optical color sorter sensitivity, check pneumatic reject nozzle pressure and timing."
-    },
-    "leather": {
-        "material": "Natural Hide / Automotive Upholstery Leather",
-        "failure_modes": "Surface cut, scar deformation, glue smear, needle puncture",
-        "risk_threshold": "Grain punctures rupture under seat tension load; aesthetic grade reduction.",
-        "tooling_capa": "Inspect CNC oscillating cutting blade sharpness, check hide tension vacuum bed, clean feed rollers."
-    },
-    "metal_nut": {
-        "material": "Hardened Grade 8 Carbon Steel Hex Nut",
-        "failure_modes": "Stripped internal thread, bent chamfer corner, surface oxidation scratch",
-        "risk_threshold": "Thread deformation causes thread galling or total joint torque loss under dynamic load.",
-        "tooling_capa": "Inspect thread tapping tool wear, check cold-heading punch concentricity, verify rust-inhibitor bath."
-    },
-    "pill": {
-        "material": "Compressed Solid Dose Tablet",
-        "failure_modes": "Tablet capping/lamination, edge chipping, surface contamination, deboss defect",
-        "risk_threshold": "Chipping causes variable drug dosage; capping exposes formulation to rapid degradation.",
-        "tooling_capa": "Check tablet press punch tooling wear, verify pre-compression force, inspect ejection cam."
-    },
-    "screw": {
-        "material": "Grade 10.9 Zinc-Plated Fastener",
-        "failure_modes": "Stripped Torx/hex head drive, thread pitch damage, head-to-shank neck scratch",
-        "risk_threshold": "Damaged drive prevents automated robotic assembly torque; neck defects trigger fatigue fracture.",
-        "tooling_capa": "Inspect thread-rolling dies, calibrate heading punch strike alignment, check zinc plating rack contacts."
-    },
-    "toothbrush": {
-        "material": "Molded Polypropylene & Nylon Bristles",
-        "failure_modes": "Splayed bristle tuft, missing anchor plate, bristle shedding, handle flash",
-        "risk_threshold": "Loose bristles present choking risk and gum abrasion during hygiene use.",
-        "tooling_capa": "Inspect bristle tufting stapling machine, verify anchor wire feed tension, examine bristle end-rounding buffer."
-    },
-    "transistor": {
-        "material": "Semiconductor TO-220 / DPAK Epoxy Package",
-        "failure_modes": "Bent lead terminal, cracked epoxy casing, heatsink tab scratch, solder bridging",
-        "risk_threshold": "Bent leads block PCB through-hole insertion; cracked packaging permits moisture ingress.",
-        "tooling_capa": "Inspect lead trim-and-form tooling die, calibrate SMD tape-and-reel feeder, check vacuum pickup nozzle."
-    },
-    "wood": {
-        "material": "Hardwood / Architectural Veneer Board",
-        "failure_modes": "Drilled hole, resin/liquid stain, surface gouge scratch, knot cracking",
-        "risk_threshold": "Deep gouges ruin decorative finish grade; knot fractures reduce structural bending strength.",
-        "tooling_capa": "Check planer blade sharpness, inspect automated sanding belt grit, clean conveyor drive belts."
-    },
-    "zipper": {
-        "material": "Molded Plastic / Brass Interlocking Teeth",
-        "failure_modes": "Missing tooth, bent pitch spacing, misaligned slider stop, slider catch",
-        "risk_threshold": "Tooth displacement prevents tooth interlock, causing complete separation under lateral pull.",
-        "tooling_capa": "Inspect tooth injection mold cavity, check ultrasonic top-stop welding horn, examine chain guide."
     }
 }
 
@@ -205,7 +145,6 @@ class LlamaAdvisoryEngine:
         runner_path=None,
         model_path=None,
         tokenizer_path=None,
-        server_url="http://127.0.0.1:8080/completion",
         max_tokens=48,
         temperature=0.0,
     ):
@@ -214,7 +153,6 @@ class LlamaAdvisoryEngine:
         self.runner_path = Path(runner_path) if runner_path else disc_runner
         self.model_path = Path(model_path) if model_path else disc_model
         self.tokenizer_path = Path(tokenizer_path) if tokenizer_path else disc_tok
-        self.server_url = server_url
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
 
@@ -258,36 +196,16 @@ class LlamaAdvisoryEngine:
     # Category-specific 1-shot examples: (assessment sentence, action sentence)
     # Each anchors the model's vocabulary to the right industrial domain.
     _CATEGORY_EXAMPLES = {
+        "steel_defects": ("Rolled-in scale induces fracture propagation during deep drawing stamping.",
+                          "Quarantine hot coil, check high-pressure descaling water headers."),
+        "steel":         ("Rolled-in scale induces fracture propagation during deep drawing stamping.",
+                          "Quarantine hot coil, check high-pressure descaling water headers."),
         "tile":       ("Stress crack propagates under 1500N floor load per ISO 10545.",
                        "Stop press, inspect Kiln Zone 3 cooling ramp."),
         "bottle":     ("Neck finish crack breaks hermetic seal, risks spoilage.",
                        "Reject lot, check blow-mold clamp alignment."),
-        "cable":      ("Exposed copper conductor causes dielectric breakdown fire risk.",
-                       "Check wire-stripping blade clearance immediately."),
-        "capsule":    ("Cap split compromises active ingredient dosage integrity.",
-                       "Check capsule closing station pin depth."),
-        "carpet":     ("Thread tear propagates under foot traffic load.",
-                       "Inspect tufting needle sharpness, check yarn tension."),
         "grid":       ("Bent strut reduces structural shear resistance per spec.",
                        "Divert part, inspect stamping die clearance."),
-        "hazelnut":   ("Shell crack permits aflatoxin mold growth, fails FDA standard.",
-                       "Calibrate optical color sorter, check reject nozzle."),
-        "leather":    ("Grain puncture ruptures under seat upholstery tension load.",
-                       "Inspect CNC cutting blade sharpness, clean feed rollers."),
-        "metal_nut":  ("Stripped thread causes galling and joint torque loss.",
-                       "Inspect thread tapping tool wear, check punch concentricity."),
-        "pill":       ("Tablet capping exposes formulation to rapid degradation.",
-                       "Check punch tooling wear, verify pre-compression force."),
-        "screw":      ("Damaged drive prevents robotic torque during automated assembly.",
-                       "Inspect thread-rolling dies, calibrate heading punch alignment."),
-        "toothbrush": ("Loose bristle presents choking risk during hygiene use.",
-                       "Inspect tufting stapler, verify anchor wire tension."),
-        "transistor": ("Bent lead blocks PCB insertion and risks solder short.",
-                       "Inspect lead trim-form die, check vacuum pickup nozzle."),
-        "wood":       ("Deep gouge ruins decorative finish grade, reduces bending strength.",
-                       "Check planer blade sharpness, inspect sanding belt grit."),
-        "zipper":     ("Missing tooth prevents interlock, causing separation under lateral pull.",
-                       "Inspect tooth injection mold cavity, check chain guide."),
     }
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
@@ -297,7 +215,7 @@ class LlamaAdvisoryEngine:
         failure-mode-aware assessments rather than generic sentences.
         """
         cat_key = category.lower()
-        kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
+        kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["steel_defects"])
 
         total_pct = rule_eval.get("total_mask_pct", 0)
         verdict = rule_eval.get("verdict", "REJECT")
@@ -310,9 +228,9 @@ class LlamaAdvisoryEngine:
         count = len(detections)
         det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
 
-        # Category-matched 1-shot example (falls back to grid if unknown)
+        # Category-matched 1-shot example (falls back to steel_defects if unknown)
         ex_assessment, ex_action = self._CATEGORY_EXAMPLES.get(
-            cat_key, self._CATEGORY_EXAMPLES["grid"]
+            cat_key, self._CATEGORY_EXAMPLES["steel_defects"]
         )
 
         prompt = (
@@ -360,18 +278,19 @@ class LlamaAdvisoryEngine:
         pct = rule_eval.get("total_mask_pct", 1.5)
         conf = rule_eval.get("max_confidence", 0.90) * 100.0
 
-        if severity == "CRITICAL":
-            assessment = f"Severe anomaly detected across {pct}% of {category} surface with {conf:.1f}% confidence, indicating structural breach or contamination."
-            action = f"Immediate rejection required. Quarantine lot, stop feeder line, and inspect tooling calibration."
-        elif severity == "HIGH":
-            assessment = f"Pronounced surface defect covering {pct}% detected ({conf:.1f}% certitude), exceeding nominal tolerance limit."
-            action = f"Divert part to rework bin. Schedule secondary optical probe and check batch alignment."
-        elif severity == "MEDIUM":
-            assessment = f"Moderate surface variation covering {pct}% observed; does not impair core structural integrity but fails aesthetic QA."
-            action = f"Flag for secondary manual inspection. Clean component surface and evaluate next inspection station."
+        sev_upper = str(severity).upper()
+        if sev_upper == "CRITICAL":
+            assessment = f"Critical defect detected across {pct}% of {category} surface ({conf:.1f}% confidence), indicating severe structural breach or material defect."
+            action = f"Immediate rejection required. Auto-reject to scrap bin, stop feeder line, and inspect tooling calibration."
+        elif sev_upper == "MAJOR":
+            assessment = f"Major surface defect covering {pct}% detected ({conf:.1f}% certitude), exceeding nominal operating tolerance."
+            action = f"Hold component at inspection station. Require manual quality inspector sign-off before proceeding."
+        elif sev_upper == "MODERATE":
+            assessment = f"Moderate surface anomaly covering {pct}% observed. Functional integrity intact, but requires diversion."
+            action = f"Divert component from main conveyor to buffer/rework lane. Monitor station variance."
         else:
-            assessment = f"Minor cosmetic anomaly ({pct}%) within acceptable marginal operating thresholds."
-            action = f"Pass with monitoring flag. Track batch defect density over next 50 cycles."
+            assessment = f"Minor cosmetic anomaly ({pct}%) within allowable marginal operating thresholds."
+            action = f"Pass with cosmetic notice. Cleared for standard continuous manufacturing flow."
 
         advisory_text = (
             f"• Severity: {severity}\n"
@@ -444,7 +363,7 @@ class LlamaAdvisoryEngine:
 
             severity = rule_eval.get("severity", "CRITICAL")
             cat_key = category.lower()
-            kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["tile"])
+            kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["steel_defects"])
 
             # Ensure complete 3-bullet structure even if runner only returned newly generated tokens
             if not out.startswith("- Severity:") and not out.startswith("• Severity:"):

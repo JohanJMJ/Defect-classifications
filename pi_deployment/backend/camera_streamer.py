@@ -30,11 +30,25 @@ class CameraStreamer:
                 return True
 
             try:
-                # Open video capture device
-                self.cap = cv2.VideoCapture(self.camera_index)
+                # On Linux/Raspberry Pi, prefer V4L2 backend for lower latency and direct driver control
+                import platform
+                if platform.system() == "Linux":
+                    self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
+                else:
+                    self.cap = cv2.VideoCapture(self.camera_index)
+
+                if not (self.cap and self.cap.isOpened()):
+                    self.cap = cv2.VideoCapture(self.camera_index)
+
                 if self.cap.isOpened():
+                    # Set resolution
                     self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                     self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                    # Minimize internal driver buffer to prevent stale / delayed frames
+                    try:
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
                     print(f"[CameraStreamer] Physical camera index {self.camera_index} is now ACTIVE (Hardware ON).")
                     return True
                 else:
@@ -84,8 +98,13 @@ class CameraStreamer:
         if camera_was_idle:
             success = self.open_camera()
             should_release = True
-            # Allow camera sensor automatic exposure to settle
-            time.sleep(0.15)
+            # Flush initial buffer frames so sensor auto-exposure (AE) and white balance (AWB) settle
+            if success and self.cap is not None:
+                for _ in range(6):
+                    self.cap.read()
+                    time.sleep(0.03)
+            else:
+                time.sleep(0.15)
 
         frame = self.get_frame()
         result = frame.copy() if frame is not None else self._create_test_card()

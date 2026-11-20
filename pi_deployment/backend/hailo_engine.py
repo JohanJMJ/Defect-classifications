@@ -26,7 +26,76 @@ except ImportError:
     HAILORT_AVAILABLE = False
 
 
+MODEL_CLASSES = {
+    "steel_defects": {
+        0: "crazing",
+        1: "inclusion",
+        2: "patches",
+        3: "pitted_surface",
+        4: "rolled-in_scale",
+        5: "scratches",
+    },
+    "steel": {
+        0: "crazing",
+        1: "inclusion",
+        2: "patches",
+        3: "pitted_surface",
+        4: "rolled-in_scale",
+        5: "scratches",
+    },
+    "bottle": {
+        0: "broken_large",
+        1: "broken_small",
+        2: "contamination",
+    },
+    "grid": {
+        0: "bent",
+        1: "broken",
+        2: "glue",
+        3: "metal_contamination",
+        4: "thread",
+    },
+    "tile": {
+        0: "crack",
+        1: "glue_strip",
+        2: "gray_stroke",
+        3: "oil",
+        4: "rough",
+    },
+}
 CLASS_NAMES = {0: "anomaly"}
+STEEL_CLASSES = MODEL_CLASSES["steel_defects"]
+
+
+def get_model_classes(model_name, models_dir=None):
+    """Retrieve defect class dictionary for a model, checking models.yaml then MODEL_CLASSES."""
+    try:
+        import yaml
+        yaml_path = (Path(models_dir) if models_dir else Path(__file__).resolve().parent.parent / "models") / "models.yaml"
+        if yaml_path.is_file():
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                models_cfg = data.get("models", {})
+                for k, v in models_cfg.items():
+                    if k.lower() == str(model_name).lower() or v.get("category", "").lower() == str(model_name).lower():
+                        if "classes" in v and isinstance(v["classes"], dict):
+                            return {int(idx): str(name) for idx, name in v["classes"].items()}
+    except Exception:
+        pass
+
+    norm = str(model_name).lower()
+    if norm.startswith("steel"):
+        norm = "steel_defects"
+    elif "bottle" in norm:
+        norm = "bottle"
+    elif "grid" in norm:
+        norm = "grid"
+    elif "tile" in norm:
+        norm = "tile"
+
+    return MODEL_CLASSES.get(norm, {0: "anomaly"})
+
+
 MASK_COLOR = (0, 0, 255)
 BOX_COLOR = (0, 165, 255)
 TEXT_COLOR = (255, 255, 255)
@@ -119,22 +188,33 @@ class HailoVisionEngine:
         if self.current_model_name == model_name and self.active_segmentor is not None:
             return True
 
-        hef_filename = f"{model_name}_hailo8.hef" if not model_name.endswith(".hef") else model_name
-        hef_path = self.models_dir / hef_filename
-        if not hef_path.is_file():
-            # Try finding direct name
-            hef_path = self.models_dir / model_name
-            if not hef_path.is_file():
-                raise FileNotFoundError(f"HEF model file not found: {hef_path}")
+        # Check direct and alias paths
+        cand_paths = [
+            self.models_dir / f"{model_name}_hailo8.hef",
+            self.models_dir / f"{model_name}.hef",
+            self.models_dir / model_name,
+        ]
+        if model_name.lower() in ["steel", "steel_defect", "steel_defects"]:
+            cand_paths.insert(0, self.models_dir / "steel_defects_hailo8.hef")
+            cand_paths.insert(1, self.models_dir / "steel_defects.hef")
+
+        hef_path = None
+        for p in cand_paths:
+            if p.is_file():
+                hef_path = p
+                break
+
+        if not hef_path:
+            raise FileNotFoundError(f"HEF model file not found for category '{model_name}' in {self.models_dir}")
 
         if self.active_segmentor is not None:
             self.active_segmentor.close()
 
-        self.active_segmentor = _NativeHailoSegmentor(str(hef_path))
+        self.active_segmentor = _NativeHailoSegmentor(str(hef_path), model_name=model_name, models_dir=self.models_dir)
         self.current_model_name = model_name
         return True
 
-    def infer(self, image_bgr, model_name="tile", conf_thresh=0.25, iou_thresh=0.50, image_name=None):
+    def infer(self, image_bgr, model_name="steel_defects", conf_thresh=0.25, iou_thresh=0.50, image_name=None):
         """
         Runs visual inference on an input BGR OpenCV image.
         Returns:
@@ -299,19 +379,31 @@ class HailoVisionEngine:
             npu_tag = "Hailo-8" if not self.force_simulation else "Simulated NPU"
             hud_parts.append(f"{npu_tag}: {latency_ms:.1f}ms")
         if rule_eval is not None:
-            hud_parts.append(f"Verdict: {rule_eval['verdict']}")
+            verd = rule_eval.get("verdict", "PASS")
+            hud_parts.append(f"Verdict: {verd}")
+            if "fuzzy_score" in rule_eval:
+                hud_parts.append(f"Risk: {rule_eval['fuzzy_score']:.0f}/100")
 
         hud_text = " | ".join(hud_parts)
-        is_pass = (not rule_eval or rule_eval.get("verdict") == "PASS")
-        status_color = (0, 200, 0) if is_pass else (0, 0, 240)
+        v = rule_eval.get("verdict", "PASS") if rule_eval else "PASS"
+        if v == "PASS":
+            status_color = (0, 200, 0)
+        elif v == "DIVERT":
+            status_color = (0, 180, 240)  # Amber
+        elif v == "INSPECT":
+            status_color = (0, 140, 255)  # Orange
+        else:
+            status_color = (0, 0, 240)    # Red
 
         cv2.putText(annotated, hud_text, (16, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
         return annotated
 
 
 class _NativeHailoSegmentor:
-    def __init__(self, hef_path):
+    def __init__(self, hef_path, model_name=None, models_dir=None):
         self.hef_path = str(hef_path)
+        self.model_name = model_name or Path(hef_path).stem.replace("_hailo8", "").replace("_hailo8l", "")
+        self.class_map = get_model_classes(self.model_name, models_dir)
         self.hef = HEF(self.hef_path)
         self.target = VDevice()
 
@@ -327,6 +419,7 @@ class _NativeHailoSegmentor:
 
         self.input_info = self.hef.get_input_vstream_infos()[0]
         self.output_infos = self.hef.get_output_vstream_infos()
+        self.output_infos_names = [x.name for x in self.output_infos]
 
         self._activated = self.network_group.activate(self.network_group_params)
         self._activated.__enter__()
@@ -372,29 +465,190 @@ class _NativeHailoSegmentor:
         detections = self._decode(outputs, pad_info, conf_thresh, iou_thresh)
         return detections, round(latency_ms, 2)
 
-    def _decode(self, outputs, pad_info, conf_thresh, iou_thresh):
-        k = len(outputs) - 1
-        proto = outputs[-1][0]
+    def _decode(self, outputs, pad_info, conf_thresh=0.25, iou_thresh=0.50):
+        if isinstance(outputs, dict):
+            outputs = list(outputs.values())
 
-        reg_flat = []
-        cls_flat = []
-        cof_flat = []
+        out_names = getattr(self, "output_infos_names", [])
+        is_nms = (len(outputs) == 1) or any(
+            isinstance(x, str) and ("postprocess" in x.lower() or "nms" in x.lower())
+            for x in out_names
+        )
 
-        for i in range(0, k, 3):
-            reg_flat.append(outputs[i][0].reshape(-1, 64))
-            cls_flat.append(outputs[i + 1][0].reshape(-1, 1))
-            cof_flat.append(outputs[i + 2][0].reshape(-1, 32))
+        if is_nms:
+            return self._decode_hailo_nms(outputs[0], pad_info, conf_thresh)
 
-        all_reg = np.concatenate(reg_flat, axis=0)
-        all_cls = np.concatenate(cls_flat, axis=0)
-        all_cof = np.concatenate(cof_flat, axis=0)
+        # Multi-Class Segmentation with prototype mask (shape 160x160x32)
+        proto_tensor = None
+        remaining = []
+        for o in outputs:
+            if (o.ndim == 4 and o.shape[1] == 160 and o.shape[2] == 160 and o.shape[3] == 32) or \
+               (o.ndim == 3 and o.shape[0] == 160 and o.shape[1] == 160 and o.shape[2] == 32):
+                proto_tensor = o
+            else:
+                remaining.append(o)
 
-        scores = all_cls[:, 0]
-        candidate_indices = np.where(scores >= conf_thresh)[0]
+        if proto_tensor is not None:
+            proto = proto_tensor[0] if proto_tensor.ndim == 4 else proto_tensor
+            return self._decode_segmentation(remaining, proto, pad_info, conf_thresh, iou_thresh)
+
+        return self._decode_raw_detection(outputs, pad_info, conf_thresh, iou_thresh)
+
+    decode_outputs = _decode
+
+    def _decode_hailo_nms(self, output, pad_info, conf_thresh):
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        detections = []
+        class_map = self.class_map
+
+        # Remove batch dimension if present
+        if isinstance(output, np.ndarray) and output.ndim >= 3 and output.shape[0] == 1:
+            output = output[0]
+        elif isinstance(output, (list, tuple)) and len(output) == 1 and isinstance(output[0], (list, tuple, np.ndarray)):
+            output = output[0]
+
+        # Reshape flat array if needed
+        if isinstance(output, np.ndarray) and output.ndim == 1:
+            num_classes = len(class_map)
+            if num_classes > 0 and output.size % (num_classes * 5) == 0:
+                output = output.reshape(num_classes, -1, 5)
+            elif output.size % 6 == 0:
+                output = output.reshape(-1, 6)
+            elif output.size % 5 == 0:
+                output = output.reshape(1, -1, 5)
+
+        # Case A: Grouped by class: [num_classes, max_boxes, 5] -> [ymin, xmin, ymax, xmax, score]
+        if isinstance(output, (list, tuple)) or (isinstance(output, np.ndarray) and output.ndim >= 2 and output.shape[-1] == 5):
+            for class_id, class_dets in enumerate(output):
+                if class_dets is None or len(class_dets) == 0:
+                    continue
+                class_dets = np.asarray(class_dets)
+                if class_dets.ndim == 1 and class_dets.size == 5:
+                    class_dets = class_dets.reshape(1, 5)
+                elif class_dets.ndim != 2 or class_dets.shape[-1] != 5:
+                    continue
+
+                for det in class_dets:
+                    ymin, xmin, ymax, xmax, score = [float(v) for v in det]
+                    if score < conf_thresh:
+                        continue
+                    if max(abs(ymin), abs(xmin), abs(ymax), abs(xmax)) <= 1.05:
+                        bx1, by1 = xmin * 640.0, ymin * 640.0
+                        bx2, by2 = xmax * 640.0, ymax * 640.0
+                    else:
+                        bx1, by1 = xmin, ymin
+                        bx2, by2 = xmax, ymax
+
+                    orig_x1 = max(0.0, min(orig_w, (bx1 - pad_left) / scale))
+                    orig_y1 = max(0.0, min(orig_h, (by1 - pad_top) / scale))
+                    orig_x2 = max(0.0, min(orig_w, (bx2 - pad_left) / scale))
+                    orig_y2 = max(0.0, min(orig_h, (by2 - pad_top) / scale))
+
+                    ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+                    ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+                    final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                    if ix2 > ix1 and iy2 > iy1:
+                        final_mask[iy1:iy2, ix1:ix2] = 1
+
+                    area_px = float((ix2 - ix1) * (iy2 - iy1))
+                    polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+                    label = class_map.get(class_id, f"defect_{class_id}")
+
+                    detections.append({
+                        "label": label,
+                        "confidence": round(score, 4),
+                        "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                        "mask_polygon_points": 4,
+                        "polygon": polygon,
+                        "mask_area_px": round(area_px, 1),
+                        "mask_array": final_mask,
+                    })
+
+        # Case B: Detections array [N, 6] -> [ymin, xmin, ymax, xmax, score, class_id]
+        elif isinstance(output, np.ndarray) and output.ndim == 2 and output.shape[-1] >= 6:
+            for det in output:
+                score = float(det[4])
+                if score < conf_thresh:
+                    continue
+                cls_id = int(round(float(det[5])))
+                ymin, xmin, ymax, xmax = [float(v) for v in det[:4]]
+                if max(abs(ymin), abs(xmin), abs(ymax), abs(xmax)) <= 1.05:
+                    bx1, by1 = xmin * 640.0, ymin * 640.0
+                    bx2, by2 = xmax * 640.0, ymax * 640.0
+                else:
+                    bx1, by1 = xmin, ymin
+                    bx2, by2 = xmax, ymax
+
+                orig_x1 = max(0.0, min(orig_w, (bx1 - pad_left) / scale))
+                orig_y1 = max(0.0, min(orig_h, (by1 - pad_top) / scale))
+                orig_x2 = max(0.0, min(orig_w, (bx2 - pad_left) / scale))
+                orig_y2 = max(0.0, min(orig_h, (by2 - pad_top) / scale))
+
+                ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+                ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+                final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                if ix2 > ix1 and iy2 > iy1:
+                    final_mask[iy1:iy2, ix1:ix2] = 1
+
+                area_px = float((ix2 - ix1) * (iy2 - iy1))
+                polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+                label = class_map.get(cls_id, f"defect_{cls_id}")
+
+                detections.append({
+                    "label": label,
+                    "confidence": round(score, 4),
+                    "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                    "mask_polygon_points": 4,
+                    "polygon": polygon,
+                    "mask_area_px": round(area_px, 1),
+                    "mask_array": final_mask,
+                })
+
+        return detections
+
+    def _decode_segmentation(self, tensors, proto, pad_info, conf_thresh, iou_thresh):
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        reg_tensors = [o for o in tensors if o.shape[-1] == 64]
+        cof_tensors = [o for o in tensors if o.shape[-1] == 32]
+        cls_tensors = [o for o in tensors if o.shape[-1] not in (64, 32)]
+
+        if len(cls_tensors) == 0 and len(cof_tensors) > 3:
+            cls_tensors = cof_tensors[3:]
+            cof_tensors = cof_tensors[:3]
+
+        reg_tensors = sorted(reg_tensors, key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+        cls_tensors = sorted(cls_tensors, key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+        cof_tensors = sorted(cof_tensors, key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+
+        if not reg_tensors or not cls_tensors or not cof_tensors:
+            return []
+
+        all_reg = np.concatenate([r[0].reshape(-1, 64) for r in reg_tensors], axis=0)
+        all_cof = np.concatenate([c[0].reshape(-1, 32) for c in cof_tensors], axis=0)
+        all_cls = np.concatenate([c[0].reshape(-1, c.shape[-1]) for c in cls_tensors], axis=0)
+
+        if np.max(all_cls) > 1.0 or np.min(all_cls) < 0.0:
+            all_cls = 1.0 / (1.0 + np.exp(-np.clip(all_cls, -30.0, 30.0)))
+
+        best_cls_ids = np.argmax(all_cls, axis=1)
+        best_scores = np.max(all_cls, axis=1)
+
+        candidate_indices = np.where(best_scores >= conf_thresh)[0]
         if len(candidate_indices) == 0:
             return []
 
-        cand_scores = scores[candidate_indices]
+        cand_scores = best_scores[candidate_indices]
+        cand_classes = best_cls_ids[candidate_indices]
         cand_reg = all_reg[candidate_indices]
         cand_cof = all_cof[candidate_indices]
         cand_anchors = self.anchors[candidate_indices]
@@ -410,7 +664,7 @@ class _NativeHailoSegmentor:
         for i in range(len(candidate_indices)):
             boxes_for_nms.append([float(x1[i]), float(y1[i]), float(x2[i] - x1[i]), float(y2[i] - y1[i])])
 
-        indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), conf_thresh, iou_thresh)
+        indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), float(conf_thresh), float(iou_thresh))
         if len(indices) == 0:
             return []
 
@@ -418,20 +672,20 @@ class _NativeHailoSegmentor:
             i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
         ]
 
-        scale = pad_info["scale"]
-        pad_left = pad_info["pad_left"]
-        pad_top = pad_info["pad_top"]
-        orig_h, orig_w = pad_info["orig_shape"]
-
         detections = []
+        class_map = self.class_map
+
         for ki in keep_indices:
             conf_val = float(cand_scores[ki])
+            cls_id = int(cand_classes[ki])
+            label = class_map.get(cls_id, f"defect_{cls_id}")
+
             bx1, by1 = float(x1[ki]), float(y1[ki])
             bx2, by2 = float(x2[ki]), float(y2[ki])
 
             coeff = cand_cof[ki]
             raw_mask = np.matmul(proto, coeff)
-            sigmoid_mask = 1.0 / (1.0 + np.exp(-raw_mask))
+            sigmoid_mask = 1.0 / (1.0 + np.exp(-np.clip(raw_mask, -30.0, 30.0)))
             mask_640 = cv2.resize(sigmoid_mask, (640, 640), interpolation=cv2.INTER_LINEAR)
 
             crop_x1 = max(0, min(640, int(round(bx1))))
@@ -470,7 +724,7 @@ class _NativeHailoSegmentor:
                 polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
 
             detections.append({
-                "label": CLASS_NAMES.get(0, "anomaly"),
+                "label": label,
                 "confidence": round(conf_val, 4),
                 "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
                 "mask_polygon_points": int(poly_points),
@@ -478,4 +732,92 @@ class _NativeHailoSegmentor:
                 "mask_area_px": round(area_px, 1),
                 "mask_array": final_mask,
             })
+
+        return detections
+
+    def _decode_raw_detection(self, outputs, pad_info, conf_thresh, iou_thresh):
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        reg_tensors = sorted([o for o in outputs if o.shape[-1] == 64], key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+        cls_tensors = sorted([o for o in outputs if o.shape[-1] not in (64, 32)], key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+
+        if not reg_tensors or not cls_tensors:
+            return []
+
+        all_reg = np.concatenate([r[0].reshape(-1, 64) for r in reg_tensors], axis=0)
+        all_cls = np.concatenate([c[0].reshape(-1, c.shape[-1]) for c in cls_tensors], axis=0)
+
+        if np.max(all_cls) > 1.0 or np.min(all_cls) < 0.0:
+            all_cls = 1.0 / (1.0 + np.exp(-np.clip(all_cls, -30.0, 30.0)))
+
+        best_cls_ids = np.argmax(all_cls, axis=1)
+        best_scores = np.max(all_cls, axis=1)
+
+        candidate_indices = np.where(best_scores >= conf_thresh)[0]
+        if len(candidate_indices) == 0:
+            return []
+
+        cand_scores = best_scores[candidate_indices]
+        cand_classes = best_cls_ids[candidate_indices]
+        cand_reg = all_reg[candidate_indices]
+        cand_anchors = self.anchors[candidate_indices]
+        cand_strides = self.strides[candidate_indices]
+
+        dists = dfl_decode(cand_reg)
+        x1 = (cand_anchors[:, 0] - dists[:, 0]) * cand_strides[:, 0]
+        y1 = (cand_anchors[:, 1] - dists[:, 1]) * cand_strides[:, 0]
+        x2 = (cand_anchors[:, 0] + dists[:, 2]) * cand_strides[:, 0]
+        y2 = (cand_anchors[:, 1] + dists[:, 3]) * cand_strides[:, 0]
+
+        boxes_for_nms = []
+        for i in range(len(candidate_indices)):
+            boxes_for_nms.append([float(x1[i]), float(y1[i]), float(x2[i] - x1[i]), float(y2[i] - y1[i])])
+
+        indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), float(conf_thresh), float(iou_thresh))
+        if len(indices) == 0:
+            return []
+
+        keep_indices = indices.flatten() if isinstance(indices, np.ndarray) else [
+            i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
+        ]
+
+        detections = []
+        class_map = self.class_map
+
+        for ki in keep_indices:
+            conf_val = float(cand_scores[ki])
+            cls_id = int(cand_classes[ki])
+            label = class_map.get(cls_id, f"defect_{cls_id}")
+
+            bx1, by1 = float(x1[ki]), float(y1[ki])
+            bx2, by2 = float(x2[ki]), float(y2[ki])
+
+            orig_x1 = float(max(0.0, min(orig_w, (bx1 - pad_left) / scale)))
+            orig_y1 = float(max(0.0, min(orig_h, (by1 - pad_top) / scale)))
+            orig_x2 = float(max(0.0, min(orig_w, (bx2 - pad_left) / scale)))
+            orig_y2 = float(max(0.0, min(orig_h, (by2 - pad_top) / scale)))
+
+            ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+            ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+            final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+            if ix2 > ix1 and iy2 > iy1:
+                final_mask[iy1:iy2, ix1:ix2] = 1
+
+            area_px = float((ix2 - ix1) * (iy2 - iy1))
+            polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+
+            detections.append({
+                "label": label,
+                "confidence": round(conf_val, 4),
+                "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                "mask_polygon_points": 4,
+                "polygon": polygon,
+                "mask_area_px": round(area_px, 1),
+                "mask_array": final_mask,
+            })
+
         return detections

@@ -72,6 +72,11 @@ const valAction = document.getElementById('valAction');
 const llamaLoadingBox = document.getElementById('llamaLoadingBox');
 const llamaTimer = document.getElementById('llamaTimer');
 const advisoryContentBox = document.getElementById('advisoryContentBox');
+const advisorySeverityRow = document.getElementById('advisorySeverityRow');
+const llamaIdleBar = document.getElementById('llamaIdleBar');
+const llamaIdleText = document.getElementById('llamaIdleText');
+
+const detailModal = document.getElementById('detailModal');
 
 let llamaPollInterval = null;
 let llamaTimerInterval = null;
@@ -79,6 +84,13 @@ let activeLlamaInspId = null;
 
 const recentTableBody = document.getElementById('recentTableBody');
 
+// Emergency Audio / Visual Alarm Banner Elements
+const emergencyAlarmBanner = document.getElementById('emergencyAlarmBanner');
+const alarmCompId = document.getElementById('alarmCompId');
+const alarmDefectDesc = document.getElementById('alarmDefectDesc');
+const btnAcknowledgeAlarm = document.getElementById('btnAcknowledgeAlarm');
+const btnToggleAlarmSound = document.getElementById('btnToggleAlarmSound');
+const alarmSoundIcon = document.getElementById('alarmSoundIcon');
 
 // ----------------------------------------------------------------------
 // Initialization
@@ -89,11 +101,29 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDropzone();
     setupModelSelector();
     setupCameraControls();
+    setupAlarmBannerListeners();
     loadSamplesForCategory(modelSelect.value);
 
     // Run inspect button
     btnRunInspect.addEventListener('click', () => {
         executeInspection();
+    });
+
+    // Modal backdrop and Escape key listeners
+    if (detailModal) {
+        detailModal.addEventListener('click', (e) => {
+            if (e.target === detailModal) closeModal();
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && detailModal && !detailModal.classList.contains('hidden')) {
+            closeModal();
+        }
+    });
+    window.addEventListener('popstate', () => {
+        if (detailModal && !detailModal.classList.contains('hidden')) {
+            closeModal(false);
+        }
     });
 
     // Toggle Raw vs Annotated image
@@ -342,7 +372,7 @@ function setupModelSelector() {
 
 function updateModelBanner(cat) {
     const selectedText = modelSelect.options[modelSelect.selectedIndex].text;
-    modelDesc.innerHTML = `Active Model: <strong>${cat.toUpperCase()}</strong> &bull; ${selectedText}`;
+    modelDesc.innerHTML = `Active Model: <strong>${selectedText}</strong>`;
 }
 
 function loadSamplesForCategory(category) {
@@ -556,18 +586,27 @@ function renderInspectionResults(insp) {
 
     // 2. Verdict Banner Card
     verdictCard.className = 'verdict-card';
-    if (insp.verdict === 'PASS') {
+    const verd = (insp.verdict || 'PASS').toUpperCase();
+    if (verd === 'PASS') {
         verdictCard.classList.add('verdict-pass');
         verdictTitle.innerText = 'PASS';
-        verdictSummary.innerText = 'Component satisfies quality threshold. No critical surface anomaly detected.';
-    } else if (insp.verdict === 'FLAGGED_MONITOR') {
-        verdictCard.classList.add('verdict-monitor');
-        verdictTitle.innerText = 'MONITOR';
-        verdictSummary.innerText = 'Minor surface anomaly detected. Routing to secondary inspection.';
+        if (insp.severity === 'Minor') {
+            verdictSummary.innerText = 'Minor surface variance detected within allowable visual tolerance. Cleared to proceed.';
+        } else {
+            verdictSummary.innerText = 'Component satisfies quality threshold. No significant defect detected.';
+        }
+    } else if (verd === 'DIVERT') {
+        verdictCard.classList.add('verdict-divert');
+        verdictTitle.innerText = 'DIVERT';
+        verdictSummary.innerText = 'Moderate anomaly detected. Divert component from main conveyor to buffer/rework lane.';
+    } else if (verd === 'INSPECT' || verd === 'FLAGGED_MONITOR' || verd === 'MONITOR') {
+        verdictCard.classList.add('verdict-inspect');
+        verdictTitle.innerText = 'INSPECT';
+        verdictSummary.innerText = 'Major surface defect detected. Hold component for secondary manual inspector sign-off.';
     } else {
         verdictCard.classList.add('verdict-reject');
         verdictTitle.innerText = 'REJECT';
-        verdictSummary.innerText = 'Defect exceeds tolerance limit. Divert part from production line.';
+        verdictSummary.innerText = 'Critical structural defect exceeds tolerance. Auto-reject to scrap bin immediately.';
     }
 
     // 3. Vision Subsystem Metrics
@@ -577,29 +616,70 @@ function renderInspectionResults(insp) {
     valVisionLatency.innerText = (insp.latency_vision_ms || 11.8) + ' ms';
 
     const coverage = Math.min(100, (insp.mask_area_pct || 0) * 5); // visual scaling
-    fillCoverage.style.width = coverage + '%';
-    labelCoverage.innerText = (insp.mask_area_pct || 0).toFixed(2) + '%';
+    if (fillCoverage) fillCoverage.style.width = coverage + '%';
+    if (labelCoverage) labelCoverage.innerText = (insp.mask_area_pct || 0).toFixed(2) + '%';
 
-    // 4. Llama Advisory (Decoupled Asynchronous Execution)
-    if (insp.llama_status === 'pending' && insp.id) {
-        startLlamaPolling(insp.id, insp.rule_action);
-    } else {
+    // 4. Llama Advisory (Option C: Collapsed for None/Minor, Expanded for Moderate/Major/Critical)
+    const sev = (insp.severity || 'None').toUpperCase();
+    const hasDefects = Boolean(insp.defect_detected && insp.defect_class && insp.defect_class !== 'None');
+
+    if (sev === 'NONE' || !hasDefects) {
+        // When there is no defect: Just show simple "Llama Idle" - no green box, no details button
         if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
-        valSeverity.className = 'severity-badge';
-        const sev = (insp.severity || 'NONE').toLowerCase();
-        valSeverity.classList.add(`badge-${sev}`);
-        valSeverity.innerText = insp.severity || 'NONE';
-        valLlamaLatency.innerText = `Llama: ${insp.latency_llama_ms || 25.0} ms`;
+        if (advisoryContentBox) advisoryContentBox.classList.add('hidden');
+        if (advisorySeverityRow) advisorySeverityRow.classList.add('hidden');
 
-        // Parse structured Llama text
-        const text = insp.llama_advisory || insp.rule_action || '';
-        parseAndDisplayLlama(text, insp.rule_action);
+        if (llamaIdleBar) {
+            llamaIdleBar.classList.remove('hidden');
+            if (llamaIdleText) llamaIdleText.innerText = 'Llama Idle';
+        }
+        valLlamaLatency.innerText = 'Llama: Idle';
+    } else if (sev === 'MINOR') {
+        // Minor cosmetic flaw: Keep simple and clean without green box or details button
+        if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
+        if (advisoryContentBox) advisoryContentBox.classList.add('hidden');
+        if (advisorySeverityRow) advisorySeverityRow.classList.add('hidden');
+
+        if (llamaIdleBar) {
+            llamaIdleBar.classList.remove('hidden');
+            if (llamaIdleText) llamaIdleText.innerText = 'Llama Idle (Minor Variance Passed)';
+        }
+        valLlamaLatency.innerText = 'Rule: <0.3 ms';
+    } else {
+        // Option C - MODERATE, MAJOR, CRITICAL: Fully expand LLaMA card
+        if (llamaIdleBar) llamaIdleBar.classList.add('hidden');
+        if (advisorySeverityRow) {
+            advisorySeverityRow.classList.remove('hidden');
+            valSeverity.className = 'severity-badge badge-' + sev.toLowerCase();
+            valSeverity.innerText = sev;
+        }
+        if (advisoryContentBox) advisoryContentBox.classList.remove('hidden');
+
+        if (insp.llama_status === 'pending' && insp.id) {
+            startLlamaPolling(insp.id, insp.rule_action);
+        } else {
+            if (llamaLoadingBox) llamaLoadingBox.classList.add('hidden');
+            valLlamaLatency.innerText = `Llama: ${insp.latency_llama_ms || 25.0} ms`;
+
+            // Parse structured Llama text
+            const text = insp.llama_advisory || insp.rule_action || '';
+            parseAndDisplayLlama(text, insp.rule_action);
+        }
     }
 
     // 5. Flash Hardware GPIO simulation indicator
     flashGpioIndicator(insp.verdict);
 
-    // 6. Prepend to Recent Table
+    // 6. Emergency Audio-Visual Alarm Banner (Only for Critical and Major!)
+    const sName = (insp.severity || '').toLowerCase();
+    const isMajorOrCritical = (sName === 'critical' || sName === 'major' || verd === 'REJECT' || insp.trigger_banner);
+    if (isMajorOrCritical) {
+        triggerSevereDefectAlarm(insp);
+    } else {
+        silenceSevereDefectAlarm();
+    }
+
+    // 7. Prepend to Recent Table
     prependRecentInspection(insp);
 }
 
@@ -609,6 +689,9 @@ function startLlamaPolling(inspId, fallbackAction) {
     if (llamaTimerInterval) clearInterval(llamaTimerInterval);
 
     activeLlamaInspId = inspId;
+    if (llamaIdleBar) llamaIdleBar.classList.add('hidden');
+    if (advisorySeverityRow) advisorySeverityRow.classList.remove('hidden');
+    if (advisoryContentBox) advisoryContentBox.classList.remove('hidden');
     if (llamaLoadingBox) llamaLoadingBox.classList.remove('hidden');
     valLlamaLatency.innerText = 'Llama: Analyzing...';
     valAssessment.innerText = 'Evaluating surface morphology and defect density on Pi 5 ARM CPU...';
@@ -667,8 +750,9 @@ function parseAndDisplayLlama(llamaText, fallbackAction) {
         } else if (clean.toLowerCase().startsWith('action:')) {
             action = clean.substring(7).trim();
         } else if (clean.toLowerCase().startsWith('severity:')) {
-            const sev = clean.substring(9).trim().toUpperCase();
-            if (['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'NONE'].includes(sev)) {
+            const sev = clean.substring(9).trim();
+            const sevUpper = sev.toUpperCase();
+            if (['NONE', 'MINOR', 'MODERATE', 'MAJOR', 'CRITICAL', 'LOW', 'MEDIUM', 'HIGH'].includes(sevUpper)) {
                 valSeverity.className = 'severity-badge badge-' + sev.toLowerCase();
                 valSeverity.innerText = sev;
             }
@@ -687,13 +771,21 @@ function flashGpioIndicator(verdict) {
 
     [g, y, r, b].forEach(el => el.classList.remove('active'));
 
-    if (verdict === 'PASS') {
+    const v = (verdict || 'PASS').toUpperCase();
+    if (v === 'PASS') {
         g.classList.add('active');
         setTimeout(() => g.classList.remove('active'), 1500);
-    } else if (verdict === 'FLAGGED_MONITOR') {
+    } else if (v === 'DIVERT') {
         y.classList.add('active');
         setTimeout(() => y.classList.remove('active'), 1800);
-    } else if (verdict === 'REJECT') {
+    } else if (v === 'INSPECT' || v === 'FLAGGED_MONITOR') {
+        y.classList.add('active');
+        b.classList.add('active');
+        setTimeout(() => {
+            y.classList.remove('active');
+            b.classList.remove('active');
+        }, 1200);
+    } else if (v === 'REJECT') {
         r.classList.add('active');
         b.classList.add('active');
         setTimeout(() => {
@@ -709,10 +801,17 @@ function prependRecentInspection(insp) {
 
     let html = '';
     recentInspections.forEach(r => {
-        const v = r.verdict;
-        const badgeClass = v === 'PASS' ? 'badge-pass' : (v === 'REJECT' ? 'badge-reject' : 'badge-monitor');
+        const v = (r.verdict || 'PASS').toUpperCase();
+        let badgeClass = 'badge-pass';
+        if (v === 'REJECT') badgeClass = 'badge-reject';
+        else if (v === 'DIVERT') badgeClass = 'badge-divert';
+        else if (v === 'INSPECT' || v === 'FLAGGED_MONITOR') badgeClass = 'badge-inspect';
+        else badgeClass = 'badge-pass';
+
         const conf = r.confidence ? (r.confidence * 100).toFixed(1) + '%' : '--';
         const area = r.mask_area_pct ? r.mask_area_pct.toFixed(2) + '%' : '0.0%';
+        const sevName = r.severity || 'None';
+        const sevClass = 'badge-' + sevName.toLowerCase();
 
         html += `
             <tr>
@@ -724,7 +823,7 @@ function prependRecentInspection(insp) {
                 <td>${area}</td>
                 <td>${conf}</td>
                 <td><span class="status-badge ${badgeClass}">${v}</span></td>
-                <td><span class="severity-pill">${r.severity}</span></td>
+                <td><span class="severity-pill ${sevClass}">${sevName}</span></td>
                 <td style="font-size: 0.8rem;">${r.latency_vision_ms}ms</td>
             </tr>
         `;
@@ -732,12 +831,391 @@ function prependRecentInspection(insp) {
     recentTableBody.innerHTML = html;
 }
 
+// ----------------------------------------------------------------------
+// Audio Alarm & Emergency Banner Subsystem (Web Audio API)
+// ----------------------------------------------------------------------
+let audioCtx = null;
+let alarmOscillatorInterval = null;
+let isAlarmActive = false;
+let isAlarmMuted = localStorage.getItem('dashboard_alarm_muted') === 'true';
+
+function initAudioContext() {
+    if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) audioCtx = new AudioContextClass();
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playIndustrialAlarmBeep(freq = 880, duration = 0.18) {
+    if (isAlarmMuted || !audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth'; // Industrial warning buzzer tone
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {
+        console.warn('[AudioAlarm] Error playing beep:', e);
+    }
+}
+
+function startAlarmAudio() {
+    initAudioContext();
+    if (alarmOscillatorInterval) clearInterval(alarmOscillatorInterval);
+    if (isAlarmMuted) return;
+
+    let highTone = true;
+    playIndustrialAlarmBeep(880, 0.20);
+    alarmOscillatorInterval = setInterval(() => {
+        if (!isAlarmActive || isAlarmMuted) {
+            clearInterval(alarmOscillatorInterval);
+            alarmOscillatorInterval = null;
+            return;
+        }
+        highTone = !highTone;
+        playIndustrialAlarmBeep(highTone ? 880 : 660, 0.20);
+    }, 380);
+}
+
+function stopAlarmAudio() {
+    if (alarmOscillatorInterval) {
+        clearInterval(alarmOscillatorInterval);
+        alarmOscillatorInterval = null;
+    }
+}
+
+function triggerSevereDefectAlarm(insp) {
+    isAlarmActive = true;
+    if (alarmCompId) alarmCompId.innerText = insp.component_id || 'UNKNOWN';
+    if (alarmDefectDesc) {
+        const defName = (insp.defect_class || 'Surface Anomaly').replace('_', ' ').toUpperCase();
+        const areaStr = insp.mask_area_pct ? `(${insp.mask_area_pct.toFixed(1)}% area)` : '';
+        alarmDefectDesc.innerText = `${defName} ${areaStr} exceeds tolerance limit. Divert component immediately.`;
+    }
+
+    if (emergencyAlarmBanner) {
+        emergencyAlarmBanner.classList.remove('hidden');
+    }
+    startAlarmAudio();
+}
+
+function silenceSevereDefectAlarm() {
+    isAlarmActive = false;
+    stopAlarmAudio();
+    if (emergencyAlarmBanner) {
+        emergencyAlarmBanner.classList.add('hidden');
+    }
+}
+
+function setupAlarmBannerListeners() {
+    if (btnAcknowledgeAlarm) {
+        btnAcknowledgeAlarm.addEventListener('click', () => {
+            silenceSevereDefectAlarm();
+        });
+    }
+
+    if (btnToggleAlarmSound) {
+        updateAlarmSoundIcon();
+        btnToggleAlarmSound.addEventListener('click', () => {
+            isAlarmMuted = !isAlarmMuted;
+            localStorage.setItem('dashboard_alarm_muted', isAlarmMuted ? 'true' : 'false');
+            updateAlarmSoundIcon();
+            if (isAlarmMuted) {
+                stopAlarmAudio();
+            } else if (isAlarmActive) {
+                startAlarmAudio();
+            }
+        });
+    }
+}
+
+function updateAlarmSoundIcon() {
+    if (alarmSoundIcon) {
+        alarmSoundIcon.innerText = isAlarmMuted ? '🔇' : '🔊';
+    }
+    if (btnToggleAlarmSound) {
+        btnToggleAlarmSound.title = isAlarmMuted ? 'Unmute Alarm Sound' : 'Mute Alarm Sound';
+    }
+}
+
 // Global test alert helper
 window.testAlert = function(verdict) {
     flashGpioIndicator(verdict);
+    if (verdict === 'REJECT') {
+        triggerSevereDefectAlarm({
+            component_id: 'SIMULATED-CRITICAL',
+            defect_class: 'Critical Fracture',
+            mask_area_pct: 14.8,
+            severity: 'Critical',
+            verdict: 'REJECT'
+        });
+    } else if (verdict === 'INSPECT') {
+        triggerSevereDefectAlarm({
+            component_id: 'SIMULATED-MAJOR',
+            defect_class: 'Major Crack',
+            mask_area_pct: 6.2,
+            severity: 'Major',
+            verdict: 'INSPECT'
+        });
+    } else if (verdict === 'PASS' || verdict === 'DIVERT') {
+        silenceSevereDefectAlarm();
+    }
     fetch('/api/alerts/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ verdict: verdict }),
     }).catch(() => {});
 };
+
+// ----------------------------------------------------------------------
+// Direct Inspection Audit Detail Modal (Pattern A: In-Modal Diagnostics & History)
+// ----------------------------------------------------------------------
+let currentModalInspection = null;
+let currentModalTab = 'diagnostics';
+
+function openInspectionDetail(inspOrId) {
+    let insp = null;
+    if (typeof inspOrId === 'object' && inspOrId !== null) {
+        insp = inspOrId;
+    } else if (typeof inspOrId === 'number' || typeof inspOrId === 'string') {
+        insp = recentInspections.find(x => x.id === Number(inspOrId));
+    }
+
+    if (!insp) {
+        insp = currentInspectionData || recentInspections[0];
+    }
+
+    if (!insp) {
+        const table = document.querySelector('.recent-inspections-section');
+        if (table) {
+            table.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            window.location.href = '/history';
+        }
+        return;
+    }
+
+    currentModalInspection = insp;
+    const modal = document.getElementById('detailModal');
+    if (!modal) return;
+
+    // Push state so browser's Back button smoothly closes the modal without page reload
+    if (!history.state || !history.state.modalOpen) {
+        history.pushState({ modalOpen: true }, '');
+    }
+
+    switchModalTab('diagnostics');
+    modal.classList.remove('hidden');
+}
+
+function switchModalTab(tabName) {
+    currentModalTab = tabName;
+    const btnDiag = document.getElementById('modalTabBtnDiag');
+    const btnHist = document.getElementById('modalTabBtnHist');
+
+    if (btnDiag && btnHist) {
+        if (tabName === 'diagnostics') {
+            btnDiag.classList.add('active');
+            btnHist.classList.remove('active');
+        } else {
+            btnDiag.classList.remove('active');
+            btnHist.classList.add('active');
+        }
+    }
+
+    renderModalView(tabName);
+}
+
+function renderModalView(tabName) {
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    if (!modalTitle || !modalBody || !currentModalInspection) return;
+
+    const insp = currentModalInspection;
+    modalTitle.innerText = `Inspection Audit #${insp.id || '--'} (${insp.component_id || 'UNKNOWN'})`;
+
+    if (tabName === 'diagnostics') {
+        const v = (insp.verdict || 'PASS').toUpperCase();
+        let badgeClass = 'badge-pass';
+        if (v === 'REJECT') badgeClass = 'badge-reject';
+        else if (v === 'DIVERT') badgeClass = 'badge-divert';
+        else if (v === 'INSPECT' || v === 'FLAGGED_MONITOR') badgeClass = 'badge-inspect';
+
+        const sev = insp.severity || 'None';
+        const sevClass = 'badge-' + sev.toLowerCase();
+        const conf = insp.confidence ? (insp.confidence * 100).toFixed(1) + '%' : '--';
+        const area = insp.mask_area_pct ? insp.mask_area_pct.toFixed(2) + '%' : '0.0%';
+        const fuzzy = insp.fuzzy_score !== undefined ? `${Number(insp.fuzzy_score).toFixed(1)} / 100` : '--';
+
+        modalBody.innerHTML = `
+            <div class="modal-detail-grid">
+                <div class="modal-images">
+                    <div class="image-preview-box">
+                        <div class="preview-title">Annotated Optical Frame</div>
+                        <img src="${insp.annotated_path || insp.image_path || ''}" class="modal-preview-img" alt="Annotated">
+                    </div>
+                    <div class="image-preview-box">
+                        <div class="preview-title">Raw Optical Capture</div>
+                        <img src="${insp.image_path || ''}" class="modal-preview-img" alt="Raw">
+                    </div>
+                </div>
+
+                <div class="modal-data">
+                    <div class="detail-row">
+                        <span class="detail-label">Quality Decision:</span>
+                        <span class="status-badge ${badgeClass}">${v}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Assessed Severity:</span>
+                        <span class="severity-badge ${sevClass}">${sev}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Fuzzy Risk Score:</span>
+                        <strong>${fuzzy}</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Component Category:</span>
+                        <span>${insp.model_category || '--'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Defect Classification:</span>
+                        <span>${insp.defect_class || 'None'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Model Confidence:</span>
+                        <span>${conf}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Surface Defect Area:</span>
+                        <span>${area}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Hailo-8 Vision Latency:</span>
+                        <span class="text-green">${insp.latency_vision_ms || '--'} ms</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Llama Advisory Latency:</span>
+                        <span class="text-cyan">${insp.latency_llama_ms || 0} ms</span>
+                    </div>
+
+                    <div class="modal-advisory-block">
+                        <div class="advisory-title">Llama Advisory &amp; Action Recommendation</div>
+                        <pre class="advisory-pre">${insp.llama_advisory || insp.rule_action || 'Surface uniformity nominal. Component cleared.'}</pre>
+                    </div>
+
+                    <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+                        <button type="button" class="btn-secondary btn-sm" onclick="switchModalTab('history')">
+                            View Recent Batch History
+                        </button>
+                        <button type="button" class="btn-primary btn-sm" onclick="closeModal()">Return to Live Studio</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else {
+        // Tab 2: Embedded Recent Batch History
+        const cat = insp.model_category || '';
+        const catLabel = cat.replace('_', ' ').toUpperCase();
+        modalBody.innerHTML = `
+            <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                <span class="text-muted" style="font-size: 0.82rem;">
+                    Recent production batch runs: <strong class="text-cyan">${catLabel}</strong>
+                </span>
+                <span class="text-muted" style="font-size: 0.75rem;">Showing latest line inspections</span>
+            </div>
+            <div class="modal-history-container">
+                <div class="modal-empty-state" id="modalHistoryLoading">Loading recent batch records from database...</div>
+            </div>
+            <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn-secondary btn-sm" onclick="switchModalTab('diagnostics')">
+                    Back to Diagnostics
+                </button>
+                <button type="button" class="btn-primary btn-sm" onclick="closeModal()">Return to Live Studio</button>
+            </div>
+        `;
+
+        const modelParam = cat ? `model=${encodeURIComponent(cat)}&` : '';
+        fetch(`/api/history?${modelParam}limit=12`)
+            .then(r => r.json())
+            .then(data => {
+                const container = modalBody.querySelector('.modal-history-container');
+                if (!container) return;
+                const rows = data.inspections || [];
+                if (rows.length === 0) {
+                    container.innerHTML = `<div class="modal-empty-state">No prior batch records found for model <code>${cat || '--'}</code>.</div>`;
+                    return;
+                }
+
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#ID</th>
+                                <th>Time</th>
+                                <th>Serial</th>
+                                <th>Defect</th>
+                                <th>Area</th>
+                                <th>Decision</th>
+                                <th>Severity</th>
+                                <th>Vision Lat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                rows.forEach(r => {
+                    const verd = (r.verdict || 'PASS').toUpperCase();
+                    let bClass = 'badge-pass';
+                    if (verd === 'REJECT') bClass = 'badge-reject';
+                    else if (verd === 'DIVERT') bClass = 'badge-divert';
+                    else if (verd === 'INSPECT' || verd === 'FLAGGED_MONITOR') bClass = 'badge-inspect';
+
+                    const sName = r.severity || 'None';
+                    const sClass = 'badge-' + sName.toLowerCase();
+                    const isCurrent = r.id === insp.id;
+                    const currentBadge = isCurrent ? ' <span class="category-tag" style="background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); font-size: 0.68rem; margin-left: 4px;">CURRENT</span>' : '';
+                    const rowHighlight = isCurrent ? ' style="background: rgba(6, 182, 212, 0.08);"' : '';
+
+                    html += `
+                        <tr${rowHighlight}>
+                            <td><strong>#${r.id}</strong>${currentBadge}</td>
+                            <td class="text-muted" style="font-size: 0.8rem;">${r.timestamp.split(' ')[1] || r.timestamp}</td>
+                            <td><code>${r.component_id}</code></td>
+                            <td>${r.defect_class || 'None'}</td>
+                            <td>${r.mask_area_pct ? r.mask_area_pct.toFixed(2) + '%' : '0.0%'}</td>
+                            <td><span class="status-badge ${bClass}">${verd}</span></td>
+                            <td><span class="severity-pill ${sClass}">${sName}</span></td>
+                            <td style="font-size: 0.8rem;">${r.latency_vision_ms || 0}ms</td>
+                        </tr>
+                    `;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                const container = modalBody.querySelector('.modal-history-container');
+                if (container) {
+                    container.innerHTML = `<div class="modal-empty-state text-red">Failed to load history: ${err.message}</div>`;
+                }
+            });
+    }
+}
+
+function closeModal(popState = true) {
+    const modal = document.getElementById('detailModal');
+    if (modal) modal.classList.add('hidden');
+    if (popState && history.state && history.state.modalOpen) {
+        history.back();
+    }
+}
+
+window.openInspectionDetail = openInspectionDetail;
+window.switchModalTab = switchModalTab;
+window.closeModal = closeModal;

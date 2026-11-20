@@ -7,39 +7,46 @@ classes:
   0: anomaly
 
 models:
+  steel_defects:
+    filename: steel_defects_hailo8.hef
+    category: steel_defects
+    task: detect
+    description: Steel Defects
+    classes:
+      0: crazing
+      1: inclusion
+      2: patches
+      3: pitted_surface
+      4: rolled-in_scale
+      5: scratches
   bottle:
     filename: bottle_hailo8.hef
     category: bottle
-    description: Bottle defect segmentation (broken large, broken small, contamination)
-  cable:
-    filename: cable_hailo8.hef
-    category: cable
-    description: Cable defect segmentation (bent wire, cable swap, missing cable, cut insulation)
-  capsule:
-    filename: capsule_hailo8.hef
-    category: capsule
-    description: Capsule defect segmentation (crack, faulty imprint, poke, scratch, squeeze)
-  carpet:
-    filename: carpet_hailo8.hef
-    category: carpet
-    description: Carpet defect segmentation (color, cut, hole, metal contamination, thread)
+    task: segment
+    description: Bottle
+    classes:
+      0: broken_large
+      1: broken_small
+      2: contamination
   grid:
     filename: grid_hailo8.hef
     category: grid
-    description: Grid defect segmentation (bent, broken, glue, thread)
-  hazelnut:
-    filename: hazelnut_hailo8.hef
-    category: hazelnut
-    description: Hazelnut defect segmentation (crack, cut, hole, print)
-  pill:
-    filename: pill_hailo8.hef
-    category: pill
-    description: Pill defect segmentation (color, crack, faulty imprint, scratch, contamination)
+    task: segment
+    description: Grid
+    classes:
+      0: bent
+      1: broken
+      2: glue
+      3: metal_contamination
+      4: thread
   tile:
     filename: tile_hailo8.hef
     category: tile
-    description: Tile defect segmentation (glue strip, oil, crack, gray stroke, rough)
-  zipper:
-    filename: zipper_hailo8.hef
-    category: zipper
-    description: Zipper defect segmentation (broken teeth, rough, squeezed teeth, split teeth)
+    task: segment
+    description: Tile
+    classes:
+      0: crack
+      1: glue_strip
+      2: gray_stroke
+      3: oil
+      4: rough

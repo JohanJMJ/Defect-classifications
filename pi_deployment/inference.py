@@ -35,8 +35,76 @@ except ImportError:
     HAILORT_AVAILABLE = False
 
 
-# Class labels (matching metadata.yaml)
+# Class labels
+MODEL_CLASSES = {
+    "steel_defects": {
+        0: "crazing",
+        1: "inclusion",
+        2: "patches",
+        3: "pitted_surface",
+        4: "rolled-in_scale",
+        5: "scratches",
+    },
+    "steel": {
+        0: "crazing",
+        1: "inclusion",
+        2: "patches",
+        3: "pitted_surface",
+        4: "rolled-in_scale",
+        5: "scratches",
+    },
+    "bottle": {
+        0: "broken_large",
+        1: "broken_small",
+        2: "contamination",
+    },
+    "grid": {
+        0: "bent",
+        1: "broken",
+        2: "glue",
+        3: "metal_contamination",
+        4: "thread",
+    },
+    "tile": {
+        0: "crack",
+        1: "glue_strip",
+        2: "gray_stroke",
+        3: "oil",
+        4: "rough",
+    },
+}
 CLASS_NAMES = {0: "anomaly"}
+STEEL_CLASSES = MODEL_CLASSES["steel_defects"]
+
+
+def get_model_classes(model_name, models_dir=None):
+    """Retrieve defect class dictionary for a model, checking models.yaml then MODEL_CLASSES."""
+    try:
+        import yaml
+        yaml_path = (Path(models_dir) if models_dir else Path(__file__).resolve().parent / "models") / "models.yaml"
+        if yaml_path.is_file():
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                models_cfg = data.get("models", {})
+                for k, v in models_cfg.items():
+                    if k.lower() == str(model_name).lower() or v.get("category", "").lower() == str(model_name).lower():
+                        if "classes" in v and isinstance(v["classes"], dict):
+                            return {int(idx): str(name) for idx, name in v["classes"].items()}
+    except Exception:
+        pass
+
+    norm = str(model_name).lower()
+    if norm.startswith("steel"):
+        norm = "steel_defects"
+    elif "bottle" in norm:
+        norm = "bottle"
+    elif "grid" in norm:
+        norm = "grid"
+    elif "tile" in norm:
+        norm = "tile"
+
+    return MODEL_CLASSES.get(norm, {0: "anomaly"})
+
 
 # Colors for visualization (BGR)
 MASK_COLOR = (0, 0, 255)      # Red for defect overlay
@@ -100,9 +168,9 @@ def make_anchors(imgsz=640, strides=(8, 16, 32)):
 
 
 class HailoYOLOSegmentor:
-    """Lightweight HailoRT YOLO Segmentation Engine."""
+    """Lightweight HailoRT YOLO Segmentation and Detection Engine."""
 
-    def __init__(self, hef_path):
+    def __init__(self, hef_path, category=None):
         if not HAILORT_AVAILABLE:
             raise RuntimeError(
                 "HailoRT ('hailo_platform') is not installed.\n"
@@ -110,6 +178,8 @@ class HailoYOLOSegmentor:
             )
 
         self.hef_path = str(hef_path)
+        self.model_name = category or Path(hef_path).stem.replace("_hailo8", "").replace("_hailo8l", "")
+        self.class_map = get_model_classes(self.model_name, Path(hef_path).parent)
         self.hef = HEF(self.hef_path)
         self.target = VDevice()
 
@@ -126,6 +196,7 @@ class HailoYOLOSegmentor:
 
         self.input_info = self.hef.get_input_vstream_infos()[0]
         self.output_infos = self.hef.get_output_vstream_infos()
+        self.output_infos_names = [x.name for x in self.output_infos]
 
         # Persistent inference pipeline
         self._activated = self.network_group.activate(self.network_group_params)
@@ -138,8 +209,10 @@ class HailoYOLOSegmentor:
 
     def __del__(self):
         try:
-            self.pipeline.__exit__(None, None, None)
-            self._activated.__exit__(None, None, None)
+            if getattr(self, "pipeline", None) is not None:
+                self.pipeline.__exit__(None, None, None)
+            if getattr(self, "_activated", None) is not None:
+                self._activated.__exit__(None, None, None)
         except Exception:
             pass
 
@@ -151,134 +224,361 @@ class HailoYOLOSegmentor:
 
     def decode_outputs(self, outputs, pad_info, conf_thresh=0.25, iou_thresh=0.50):
         """
-        Pure NumPy post-processing for YOLO11 segmentation.
+        Pure NumPy post-processing for YOLO11 multi-class segmentation and detection.
         Zero PyTorch required.
         """
-        # Outputs contain:
-        # [0:k:3] -> reg_maps (64 channels per scale)
-        # [1:k:3] -> cls_maps (1 channel per scale, sigmoid applied)
-        # [2:k:3] -> cof_maps (32 channels per scale)
-        # [-1]    -> prototype masks (1, 160, 160, 32)
-        k = len(outputs) - 1
-        proto = outputs[-1][0]  # shape (160, 160, 32)
+        if isinstance(outputs, dict):
+            outputs = list(outputs.values())
 
-        reg_flat = []
-        cls_flat = []
-        cof_flat = []
-
-        for i in range(0, k, 3):
-            # reg: (1, H, W, 64) -> (H*W, 64)
-            reg_flat.append(outputs[i][0].reshape(-1, 64))
-            # cls: (1, H, W, 1) -> (H*W, 1)
-            cls_flat.append(outputs[i + 1][0].reshape(-1, 1))
-            # cof: (1, H, W, 32) -> (H*W, 32)
-            cof_flat.append(outputs[i + 2][0].reshape(-1, 32))
-
-        all_reg = np.concatenate(reg_flat, axis=0)  # (8400, 64)
-        all_cls = np.concatenate(cls_flat, axis=0)  # (8400, 1)
-        all_cof = np.concatenate(cof_flat, axis=0)  # (8400, 32)
-
-        scores = all_cls[:, 0]
-        candidate_indices = np.where(scores >= conf_thresh)[0]
-
-        if len(candidate_indices) == 0:
-            return []
-
-        # Filter candidates
-        cand_scores = scores[candidate_indices]
-        cand_reg = all_reg[candidate_indices]
-        cand_cof = all_cof[candidate_indices]
-        cand_anchors = self.anchors[candidate_indices]
-        cand_strides = self.strides[candidate_indices]
-
-        # Decode box distances via DFL
-        dists = dfl_decode(cand_reg)  # (M, 4): left, top, right, bottom
-
-        # Box coordinates on 640x640 canvas
-        x1 = (cand_anchors[:, 0] - dists[:, 0]) * cand_strides[:, 0]
-        y1 = (cand_anchors[:, 1] - dists[:, 1]) * cand_strides[:, 0]
-        x2 = (cand_anchors[:, 0] + dists[:, 2]) * cand_strides[:, 0]
-        y2 = (cand_anchors[:, 1] + dists[:, 3]) * cand_strides[:, 0]
-
-        # Convert to cv2 NMS format: [x, y, w, h]
-        boxes_for_nms = []
-        for i in range(len(candidate_indices)):
-            bx = float(x1[i])
-            by = float(y1[i])
-            bw = float(x2[i] - x1[i])
-            bh = float(y2[i] - y1[i])
-            boxes_for_nms.append([bx, by, bw, bh])
-
-        # Run fast OpenCV NMS
-        indices = cv2.dnn.NMSBoxes(
-            boxes_for_nms,
-            cand_scores.tolist(),
-            score_threshold=float(conf_thresh),
-            nms_threshold=float(iou_thresh)
+        out_names = getattr(self, "output_infos_names", [])
+        is_nms = (len(outputs) == 1) or any(
+            isinstance(x, str) and ("postprocess" in x.lower() or "nms" in x.lower())
+            for x in out_names
         )
 
-        if len(indices) == 0:
-            return []
+        if is_nms:
+            return self._decode_hailo_nms(outputs[0], pad_info, conf_thresh)
 
-        if isinstance(indices, np.ndarray):
-            keep_indices = indices.flatten()
-        else:
-            keep_indices = [i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices]
+        # Multi-Class Segmentation with prototype mask (shape 160x160x32)
+        proto_tensor = None
+        remaining = []
+        for o in outputs:
+            if (o.ndim == 4 and o.shape[1] == 160 and o.shape[2] == 160 and o.shape[3] == 32) or \
+               (o.ndim == 3 and o.shape[0] == 160 and o.shape[1] == 160 and o.shape[2] == 32):
+                proto_tensor = o
+            else:
+                remaining.append(o)
 
+        if proto_tensor is not None:
+            proto = proto_tensor[0] if proto_tensor.ndim == 4 else proto_tensor
+            return self._decode_segmentation(remaining, proto, pad_info, conf_thresh, iou_thresh)
+
+        return self._decode_raw_detection(outputs, pad_info, conf_thresh, iou_thresh)
+
+    _decode = decode_outputs
+
+    def _decode_hailo_nms(self, output, pad_info, conf_thresh):
         scale = pad_info["scale"]
         pad_left = pad_info["pad_left"]
         pad_top = pad_info["pad_top"]
         orig_h, orig_w = pad_info["orig_shape"]
 
         detections = []
+        class_map = self.class_map
+
+        # Remove batch dimension if present
+        if isinstance(output, np.ndarray) and output.ndim >= 3 and output.shape[0] == 1:
+            output = output[0]
+        elif isinstance(output, (list, tuple)) and len(output) == 1 and isinstance(output[0], (list, tuple, np.ndarray)):
+            output = output[0]
+
+        # Reshape flat array if needed
+        if isinstance(output, np.ndarray) and output.ndim == 1:
+            num_classes = len(class_map)
+            if num_classes > 0 and output.size % (num_classes * 5) == 0:
+                output = output.reshape(num_classes, -1, 5)
+            elif output.size % 6 == 0:
+                output = output.reshape(-1, 6)
+            elif output.size % 5 == 0:
+                output = output.reshape(1, -1, 5)
+
+        # Case A: Grouped by class: [num_classes, max_boxes, 5] -> [ymin, xmin, ymax, xmax, score]
+        if isinstance(output, (list, tuple)) or (isinstance(output, np.ndarray) and output.ndim >= 2 and output.shape[-1] == 5):
+            for class_id, class_dets in enumerate(output):
+                if class_dets is None or len(class_dets) == 0:
+                    continue
+                class_dets = np.asarray(class_dets)
+                if class_dets.ndim == 1 and class_dets.size == 5:
+                    class_dets = class_dets.reshape(1, 5)
+                elif class_dets.ndim != 2 or class_dets.shape[-1] != 5:
+                    continue
+
+                for det in class_dets:
+                    ymin, xmin, ymax, xmax, score = [float(v) for v in det]
+                    if score < conf_thresh:
+                        continue
+                    if max(abs(ymin), abs(xmin), abs(ymax), abs(xmax)) <= 1.05:
+                        bx1, by1 = xmin * 640.0, ymin * 640.0
+                        bx2, by2 = xmax * 640.0, ymax * 640.0
+                    else:
+                        bx1, by1 = xmin, ymin
+                        bx2, by2 = xmax, ymax
+
+                    orig_x1 = max(0.0, min(orig_w, (bx1 - pad_left) / scale))
+                    orig_y1 = max(0.0, min(orig_h, (by1 - pad_top) / scale))
+                    orig_x2 = max(0.0, min(orig_w, (bx2 - pad_left) / scale))
+                    orig_y2 = max(0.0, min(orig_h, (by2 - pad_top) / scale))
+
+                    ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+                    ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+                    final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                    if ix2 > ix1 and iy2 > iy1:
+                        final_mask[iy1:iy2, ix1:ix2] = 1
+
+                    area_px = float((ix2 - ix1) * (iy2 - iy1))
+                    polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+                    label = class_map.get(class_id, f"defect_{class_id}")
+
+                    detections.append({
+                        "label": label,
+                        "confidence": round(score, 4),
+                        "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                        "mask_polygon_points": 4,
+                        "polygon": polygon,
+                        "mask_area_px": round(area_px, 1),
+                        "mask_array": final_mask,
+                    })
+
+        # Case B: Detections array [N, 6] -> [ymin, xmin, ymax, xmax, score, class_id]
+        elif isinstance(output, np.ndarray) and output.ndim == 2 and output.shape[-1] >= 6:
+            for det in output:
+                score = float(det[4])
+                if score < conf_thresh:
+                    continue
+                cls_id = int(round(float(det[5])))
+                ymin, xmin, ymax, xmax = [float(v) for v in det[:4]]
+                if max(abs(ymin), abs(xmin), abs(ymax), abs(xmax)) <= 1.05:
+                    bx1, by1 = xmin * 640.0, ymin * 640.0
+                    bx2, by2 = xmax * 640.0, ymax * 640.0
+                else:
+                    bx1, by1 = xmin, ymin
+                    bx2, by2 = xmax, ymax
+
+                orig_x1 = max(0.0, min(orig_w, (bx1 - pad_left) / scale))
+                orig_y1 = max(0.0, min(orig_h, (by1 - pad_top) / scale))
+                orig_x2 = max(0.0, min(orig_w, (bx2 - pad_left) / scale))
+                orig_y2 = max(0.0, min(orig_h, (by2 - pad_top) / scale))
+
+                ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+                ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+                final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                if ix2 > ix1 and iy2 > iy1:
+                    final_mask[iy1:iy2, ix1:ix2] = 1
+
+                area_px = float((ix2 - ix1) * (iy2 - iy1))
+                polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+                label = class_map.get(cls_id, f"defect_{cls_id}")
+
+                detections.append({
+                    "label": label,
+                    "confidence": round(score, 4),
+                    "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                    "mask_polygon_points": 4,
+                    "polygon": polygon,
+                    "mask_area_px": round(area_px, 1),
+                    "mask_array": final_mask,
+                })
+
+        return detections
+
+    def _decode_segmentation(self, tensors, proto, pad_info, conf_thresh, iou_thresh):
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        reg_tensors = [o for o in tensors if o.shape[-1] == 64]
+        cof_tensors = [o for o in tensors if o.shape[-1] == 32]
+        cls_tensors = [o for o in tensors if o.shape[-1] not in (64, 32)]
+
+        if len(cls_tensors) == 0 and len(cof_tensors) > 3:
+            cls_tensors = cof_tensors[3:]
+            cof_tensors = cof_tensors[:3]
+
+        reg_tensors = sorted(reg_tensors, key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+        cls_tensors = sorted(cls_tensors, key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+        cof_tensors = sorted(cof_tensors, key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+
+        if not reg_tensors or not cls_tensors or not cof_tensors:
+            return []
+
+        all_reg = np.concatenate([r[0].reshape(-1, 64) for r in reg_tensors], axis=0)
+        all_cof = np.concatenate([c[0].reshape(-1, 32) for c in cof_tensors], axis=0)
+        all_cls = np.concatenate([c[0].reshape(-1, c.shape[-1]) for c in cls_tensors], axis=0)
+
+        if np.max(all_cls) > 1.0 or np.min(all_cls) < 0.0:
+            all_cls = 1.0 / (1.0 + np.exp(-np.clip(all_cls, -30.0, 30.0)))
+
+        best_cls_ids = np.argmax(all_cls, axis=1)
+        best_scores = np.max(all_cls, axis=1)
+
+        candidate_indices = np.where(best_scores >= conf_thresh)[0]
+        if len(candidate_indices) == 0:
+            return []
+
+        cand_scores = best_scores[candidate_indices]
+        cand_classes = best_cls_ids[candidate_indices]
+        cand_reg = all_reg[candidate_indices]
+        cand_cof = all_cof[candidate_indices]
+        cand_anchors = self.anchors[candidate_indices]
+        cand_strides = self.strides[candidate_indices]
+
+        dists = dfl_decode(cand_reg)
+        x1 = (cand_anchors[:, 0] - dists[:, 0]) * cand_strides[:, 0]
+        y1 = (cand_anchors[:, 1] - dists[:, 1]) * cand_strides[:, 0]
+        x2 = (cand_anchors[:, 0] + dists[:, 2]) * cand_strides[:, 0]
+        y2 = (cand_anchors[:, 1] + dists[:, 3]) * cand_strides[:, 0]
+
+        boxes_for_nms = []
+        for i in range(len(candidate_indices)):
+            boxes_for_nms.append([float(x1[i]), float(y1[i]), float(x2[i] - x1[i]), float(y2[i] - y1[i])])
+
+        indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), float(conf_thresh), float(iou_thresh))
+        if len(indices) == 0:
+            return []
+
+        keep_indices = indices.flatten() if isinstance(indices, np.ndarray) else [
+            i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
+        ]
+
+        detections = []
+        class_map = self.class_map
 
         for ki in keep_indices:
             conf_val = float(cand_scores[ki])
-            # Coords on 640x640
-            bx1, by1 = x1[ki], y1[ki]
-            bx2, by2 = x2[ki], y2[ki]
+            cls_id = int(cand_classes[ki])
+            label = class_map.get(cls_id, f"defect_{cls_id}")
 
-            # Compute mask: proto (160, 160, 32) @ coeff (32,)
+            bx1, by1 = float(x1[ki]), float(y1[ki])
+            bx2, by2 = float(x2[ki]), float(y2[ki])
+
             coeff = cand_cof[ki]
-            raw_mask = np.matmul(proto, coeff)  # (160, 160)
-            sigmoid_mask = 1.0 / (1.0 + np.exp(-raw_mask))
-
-            # Resize mask to 640x640
+            raw_mask = np.matmul(proto, coeff)
+            sigmoid_mask = 1.0 / (1.0 + np.exp(-np.clip(raw_mask, -30.0, 30.0)))
             mask_640 = cv2.resize(sigmoid_mask, (640, 640), interpolation=cv2.INTER_LINEAR)
 
-            # Crop mask to box on 640x640
-            crop_x1 = max(0, int(round(bx1)))
-            crop_y1 = max(0, int(round(by1)))
-            crop_x2 = min(640, int(round(bx2)))
-            crop_y2 = min(640, int(round(by2)))
+            crop_x1 = max(0, min(640, int(round(bx1))))
+            crop_y1 = max(0, min(640, int(round(by1))))
+            crop_x2 = max(0, min(640, int(round(bx2))))
+            crop_y2 = max(0, min(640, int(round(by2))))
 
             binary_mask_640 = np.zeros((640, 640), dtype=np.uint8)
-            binary_mask_640[crop_y1:crop_y2, crop_x1:crop_x2] = (
-                mask_640[crop_y1:crop_y2, crop_x1:crop_x2] > 0.5
-            ).astype(np.uint8)
+            if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+                binary_mask_640[crop_y1:crop_y2, crop_x1:crop_x2] = (
+                    mask_640[crop_y1:crop_y2, crop_x1:crop_x2] > 0.5
+                ).astype(np.uint8)
 
-            # Un-pad and rescale mask back to original image size
-            unpad_mask = binary_mask_640[pad_top:640 - pad_top, pad_left:640 - pad_left]
-            final_mask = cv2.resize(unpad_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+            unpad_y2 = 640 - pad_top
+            unpad_x2 = 640 - pad_left
+            unpad_mask = binary_mask_640[pad_top:unpad_y2, pad_left:unpad_x2]
 
-            # Map box back to original image coordinates
-            orig_x1 = max(0.0, min(orig_w, (bx1 - pad_left) / scale))
-            orig_y1 = max(0.0, min(orig_h, (by1 - pad_top) / scale))
-            orig_x2 = max(0.0, min(orig_w, (bx2 - pad_left) / scale))
-            orig_y2 = max(0.0, min(orig_h, (by2 - pad_top) / scale))
+            final_mask = (
+                cv2.resize(unpad_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+                if unpad_mask.size > 0
+                else np.zeros((orig_h, orig_w), dtype=np.uint8)
+            )
 
-            # Extract contour polygon for JSON output
+            orig_x1 = float(max(0.0, min(orig_w, (bx1 - pad_left) / scale)))
+            orig_y1 = float(max(0.0, min(orig_h, (by1 - pad_top) / scale)))
+            orig_x2 = float(max(0.0, min(orig_w, (bx2 - pad_left) / scale)))
+            orig_y2 = float(max(0.0, min(orig_h, (by2 - pad_top) / scale)))
+
             contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             poly_points = len(contours[0]) if len(contours) > 0 else 0
             area_px = float(np.sum(final_mask))
 
+            polygon = []
+            if len(contours) > 0:
+                approx = cv2.approxPolyDP(contours[0], epsilon=0.01 * cv2.arcLength(contours[0], True), closed=True)
+                polygon = [[int(pt[0][0]), int(pt[0][1])] for pt in approx]
+
             detections.append({
-                "label": CLASS_NAMES.get(0, "anomaly"),
+                "label": label,
                 "confidence": round(conf_val, 4),
                 "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
-                "mask_polygon_points": poly_points,
+                "mask_polygon_points": int(poly_points),
+                "polygon": polygon,
                 "mask_area_px": round(area_px, 1),
-                "mask_array": final_mask
+                "mask_array": final_mask,
+            })
+
+        return detections
+
+    def _decode_raw_detection(self, outputs, pad_info, conf_thresh, iou_thresh):
+        scale = pad_info["scale"]
+        pad_left = pad_info["pad_left"]
+        pad_top = pad_info["pad_top"]
+        orig_h, orig_w = pad_info["orig_shape"]
+
+        reg_tensors = sorted([o for o in outputs if o.shape[-1] == 64], key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+        cls_tensors = sorted([o for o in outputs if o.shape[-1] not in (64, 32)], key=lambda x: x.shape[1] * x.shape[2], reverse=True)
+
+        if not reg_tensors or not cls_tensors:
+            return []
+
+        all_reg = np.concatenate([r[0].reshape(-1, 64) for r in reg_tensors], axis=0)
+        all_cls = np.concatenate([c[0].reshape(-1, c.shape[-1]) for c in cls_tensors], axis=0)
+
+        if np.max(all_cls) > 1.0 or np.min(all_cls) < 0.0:
+            all_cls = 1.0 / (1.0 + np.exp(-np.clip(all_cls, -30.0, 30.0)))
+
+        best_cls_ids = np.argmax(all_cls, axis=1)
+        best_scores = np.max(all_cls, axis=1)
+
+        candidate_indices = np.where(best_scores >= conf_thresh)[0]
+        if len(candidate_indices) == 0:
+            return []
+
+        cand_scores = best_scores[candidate_indices]
+        cand_classes = best_cls_ids[candidate_indices]
+        cand_reg = all_reg[candidate_indices]
+        cand_anchors = self.anchors[candidate_indices]
+        cand_strides = self.strides[candidate_indices]
+
+        dists = dfl_decode(cand_reg)
+        x1 = (cand_anchors[:, 0] - dists[:, 0]) * cand_strides[:, 0]
+        y1 = (cand_anchors[:, 1] - dists[:, 1]) * cand_strides[:, 0]
+        x2 = (cand_anchors[:, 0] + dists[:, 2]) * cand_strides[:, 0]
+        y2 = (cand_anchors[:, 1] + dists[:, 3]) * cand_strides[:, 0]
+
+        boxes_for_nms = []
+        for i in range(len(candidate_indices)):
+            boxes_for_nms.append([float(x1[i]), float(y1[i]), float(x2[i] - x1[i]), float(y2[i] - y1[i])])
+
+        indices = cv2.dnn.NMSBoxes(boxes_for_nms, cand_scores.tolist(), float(conf_thresh), float(iou_thresh))
+        if len(indices) == 0:
+            return []
+
+        keep_indices = indices.flatten() if isinstance(indices, np.ndarray) else [
+            i[0] if isinstance(i, (list, tuple, np.ndarray)) else i for i in indices
+        ]
+
+        detections = []
+        class_map = self.class_map
+
+        for ki in keep_indices:
+            conf_val = float(cand_scores[ki])
+            cls_id = int(cand_classes[ki])
+            label = class_map.get(cls_id, f"defect_{cls_id}")
+
+            bx1, by1 = float(x1[ki]), float(y1[ki])
+            bx2, by2 = float(x2[ki]), float(y2[ki])
+
+            orig_x1 = float(max(0.0, min(orig_w, (bx1 - pad_left) / scale)))
+            orig_y1 = float(max(0.0, min(orig_h, (by1 - pad_top) / scale)))
+            orig_x2 = float(max(0.0, min(orig_w, (bx2 - pad_left) / scale)))
+            orig_y2 = float(max(0.0, min(orig_h, (by2 - pad_top) / scale)))
+
+            ix1, iy1 = int(round(orig_x1)), int(round(orig_y1))
+            ix2, iy2 = int(round(orig_x2)), int(round(orig_y2))
+
+            final_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+            if ix2 > ix1 and iy2 > iy1:
+                final_mask[iy1:iy2, ix1:ix2] = 1
+
+            area_px = float((ix2 - ix1) * (iy2 - iy1))
+            polygon = [[ix1, iy1], [ix2, iy1], [ix2, iy2], [ix1, iy2]]
+
+            detections.append({
+                "label": label,
+                "confidence": round(conf_val, 4),
+                "bbox": [round(orig_x1, 1), round(orig_y1, 1), round(orig_x2, 1), round(orig_y2, 1)],
+                "mask_polygon_points": 4,
+                "polygon": polygon,
+                "mask_area_px": round(area_px, 1),
+                "mask_array": final_mask,
             })
 
         return detections
@@ -367,10 +667,16 @@ def get_available_models(models_dir):
         return models
     for p in sorted(models_dir.glob("*.hef")):
         stem = p.stem  # e.g. bottle_hailo8
-        category = stem.split("_")[0].lower()
-        models[category] = p
+        clean = stem.replace("_hailo8l", "").replace("_hailo8", "").lower()
+        models[clean] = p
         models[stem.lower()] = p
         models[p.name.lower()] = p
+        if clean.startswith("steel"):
+            models["steel"] = p
+            models["steel_defects"] = p
+            models["steel_defect"] = p
+        else:
+            models[stem.split("_")[0].lower()] = p
     return models
 
 
@@ -390,7 +696,7 @@ def list_available_models(models_dir, sample_images_dir=None):
     print(f"{'Category':<14} {'Model Filename':<26} {'Size (MB)':<12} {'Sample Images':<16}")
     print("-" * 72)
     for p in hef_files:
-        cat = p.stem.split("_")[0]
+        cat = "steel_defects" if p.stem.startswith("steel") else p.stem.split("_")[0]
         size_mb = p.stat().st_size / (1024 * 1024)
         has_samples = sample_images_dir and (sample_images_dir / cat).is_dir()
         sample_status = f"sample_images/{cat}" if has_samples else "Root folder"
@@ -398,9 +704,9 @@ def list_available_models(models_dir, sample_images_dir=None):
     print("=" * 72)
     print("Quick Run Examples:")
     print("  python3 inference.py --model bottle")
-    print("  ./run_inference.sh --model cable")
-    print("  ./run_inference.sh zipper")
-    print("  ./run_inference.sh carpet --camera\n")
+    print("  ./run_inference.sh --model tile")
+    print("  ./run_inference.sh grid")
+    print("  ./run_inference.sh tile --camera\n")
 
 
 def resolve_model_path(model_arg, models_dir):
@@ -413,6 +719,9 @@ def resolve_model_path(model_arg, models_dir):
     """
     if not model_arg:
         # Default fallback
+        steel_path = models_dir / "steel_defects_hailo8.hef"
+        if steel_path.exists():
+            return steel_path
         tile_path = models_dir / "tile_hailo8.hef"
         if tile_path.exists():
             return tile_path
@@ -443,8 +752,13 @@ def resolve_model_path(model_arg, models_dir):
         return cand_h8l.resolve()
 
     # 3. Lookup in available models alias dict
-    avail = get_available_models(models_dir)
     clean_arg = base_name.replace(".hef", "").strip().lower()
+    if clean_arg in ["steel", "steel_defect", "steel_defects"]:
+        steel_p = models_dir / "steel_defects_hailo8.hef"
+        if steel_p.is_file():
+            return steel_p.resolve()
+
+    avail = get_available_models(models_dir)
     if clean_arg in avail:
         return avail[clean_arg].resolve()
 
@@ -453,20 +767,20 @@ def resolve_model_path(model_arg, models_dir):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Native HailoRT YOLO segmentation inference (No PyTorch, No Ultralytics)",
+        description="Native HailoRT YOLO segmentation and detection inference (No PyTorch, No Ultralytics)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
         "-m", "--model",
         type=str,
         default=None,
-        help="Model name, category (e.g. 'bottle', 'tile', 'cable'), or path to .hef model"
+        help="Model name, category (e.g. 'steel_defects', 'tile', 'bottle', 'grid'), or path to .hef model"
     )
     parser.add_argument(
         "-c", "--category",
         type=str,
         default=None,
-        help="Alias for --model (e.g. bottle, cable, capsule, carpet, grid, hazelnut, pill, tile, zipper)"
+        help="Alias for --model (e.g. steel_defects, tile, bottle, grid)"
     )
     parser.add_argument(
         "-l", "--list-models",
@@ -509,7 +823,7 @@ def main():
         list_available_models(models_dir, sample_images_dir)
         sys.exit(1)
 
-    category = model_path.stem.split("_")[0].lower()
+    category = "steel_defects" if model_path.stem.startswith("steel") else model_path.stem.split("_")[0].lower()
 
     # Determine default source if not provided
     if args.source is None:
@@ -538,7 +852,7 @@ def main():
 
     # Initialize Hailo engine
     try:
-        engine = HailoYOLOSegmentor(model_path)
+        engine = HailoYOLOSegmentor(model_path, category=category)
     except Exception as e:
         print(f"❌ Failed to initialize Hailo-8 engine: {e}")
         sys.exit(1)

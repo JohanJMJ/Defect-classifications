@@ -5,6 +5,37 @@
 {% block content %}
 <div class="studio-layout">
 
+    <!-- High-Visibility Industrial Emergency Audio/Visual Alarm Banner -->
+    <div id="emergencyAlarmBanner" class="emergency-alarm-banner hidden">
+        <div class="alarm-banner-content">
+            <div class="alarm-icon-box">
+                <svg class="alarm-siren-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="8.5" x2="12" y2="13" stroke-linecap="round"></line>
+                    <circle cx="12" cy="16.5" r="1.2" fill="currentColor"></circle>
+                </svg>
+            </div>
+            <div class="alarm-text-block">
+                <div class="alarm-headline">
+                    <span class="alarm-badge">CRITICAL DEFECT DETECTED</span>
+                    <span class="alarm-part-action">PART DISPOSITION: REJECT</span>
+                </div>
+                <div class="alarm-details" id="alarmDetailsText">
+                    Component <strong id="alarmCompId">--</strong> failed optical quality gate:
+                    <span id="alarmDefectDesc">Surface anomaly exceeds tolerance threshold.</span>
+                </div>
+            </div>
+            <div class="alarm-actions">
+                <button type="button" id="btnToggleAlarmSound" class="btn-alarm-sound" title="Toggle Alarm Sound (Mute/Unmute)">
+                    <span id="alarmSoundIcon">🔊</span>
+                </button>
+                <button type="button" id="btnAcknowledgeAlarm" class="btn-acknowledge-alarm" title="Acknowledge fault and silence alarm">
+                    Acknowledge
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Left / Center Column: Workspace, Inputs & Viewfinder -->
     <div class="studio-left">
 
@@ -21,8 +52,8 @@
                     </label>
                     <select id="modelSelect" class="form-select">
                         {% for key, val in models.items() %}
-                        <option value="{{ key }}" {% if key=='tile' %}selected{% endif %}>
-                            {{ key|upper }} ({{ val.description }})
+                        <option value="{{ key }}" {% if key=='steel_defects' %}selected{% endif %}>
+                            {{ val.description or key.replace('_', ' ')|title }}
                         </option>
                         {% endfor %}
                     </select>
@@ -31,7 +62,7 @@
                 <div class="control-group">
                     <label for="componentId" class="control-label">COMPONENT SERIAL ID</label>
                     <div class="input-with-action">
-                        <input type="text" id="componentId" class="form-input" placeholder="e.g. TILE-LOT-401" value="">
+                        <input type="text" id="componentId" class="form-input" placeholder="e.g. STEEL-LOT-401" value="">
                         <button type="button" id="btnGenId" class="btn-secondary btn-sm"
                             title="Generate New Serial ID">Auto ID</button>
                     </div>
@@ -40,7 +71,7 @@
 
             <!-- Model Info Description -->
             <div class="model-desc-banner" id="modelDesc">
-                Category: <strong>Tile</strong> &bull; Segmenting: glue strip, oil, crack, gray stroke, rough
+                Active Model: <strong>Steel Defects</strong>
             </div>
         </div>
 
@@ -273,16 +304,6 @@
                     <div class="metric-value text-green" id="valVisionLatency">-- ms</div>
                 </div>
             </div>
-
-            <div class="progress-bar-container">
-                <div class="progress-bar-label">
-                    <span>Defect Surface Coverage</span>
-                    <span id="labelCoverage">0%</span>
-                </div>
-                <div class="progress-track">
-                    <div class="progress-fill" id="fillCoverage" style="width: 0%;"></div>
-                </div>
-            </div>
         </div>
 
         <!-- Llama Advisory Card -->
@@ -301,10 +322,17 @@
                 <span class="chip chip-purple" id="chipLlamaHw">Pi ARM CPU</span>
             </div>
 
-            <div class="advisory-severity-row">
+            <!-- Idle Status when No Defect -->
+            <div id="llamaIdleBar" class="llama-idle-simple hidden">
+                <span class="status-indicator-dot dot-idle"></span>
+                <span id="llamaIdleText" class="llama-idle-text">Llama Idle</span>
+            </div>
+
+            <div class="advisory-severity-row" id="advisorySeverityRow">
                 <span class="advisory-label">Assessed Severity:</span>
                 <span class="severity-badge badge-none" id="valSeverity">NONE</span>
                 <span class="advisory-latency" id="valLlamaLatency">-- ms</span>
+                <button type="button" class="btn-card-detail" id="btnCardDetail" onclick="openInspectionDetail()" title="Inspect Log &amp; Diagnostic Details">Details</button>
             </div>
 
             <!-- Asynchronous Llama 3B Generation Loading Bar -->
@@ -369,8 +397,8 @@
             <div class="gpio-test-actions">
                 <span class="text-muted" style="font-size: 0.75rem;">Simulate Physical Alerts:</span>
                 <button type="button" class="btn-test-alert" onclick="testAlert('PASS')">Test Pass</button>
-                <button type="button" class="btn-test-alert text-amber" onclick="testAlert('FLAGGED_MONITOR')">Test
-                    Monitor</button>
+                <button type="button" class="btn-test-alert text-amber" onclick="testAlert('DIVERT')">Test Divert</button>
+                <button type="button" class="btn-test-alert text-amber" onclick="testAlert('INSPECT')">Test Inspect</button>
                 <button type="button" class="btn-test-alert text-red" onclick="testAlert('REJECT')">Test Reject</button>
             </div>
         </div>
@@ -416,6 +444,27 @@
         </table>
     </div>
 </section>
+
+<!-- Inspection Detail Modal (Pattern A: Embedded Diagnostics & Run History) -->
+<div id="detailModal" class="modal-overlay hidden">
+    <div class="modal-container">
+        <div class="modal-header">
+            <div class="modal-title" id="modalTitle">Inspection Detail #--</div>
+            <button type="button" class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-nav-tabs">
+            <button type="button" class="modal-tab-btn active" id="modalTabBtnDiag" onclick="switchModalTab('diagnostics')">
+                AI Diagnostics &amp; Frames
+            </button>
+            <button type="button" class="modal-tab-btn" id="modalTabBtnHist" onclick="switchModalTab('history')">
+                Recent Batch History
+            </button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <!-- Populated dynamically via JavaScript -->
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

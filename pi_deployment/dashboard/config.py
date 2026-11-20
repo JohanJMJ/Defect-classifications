@@ -36,15 +36,10 @@ def get_available_models():
 
     # Fallback default models list
     return {
-        "tile": {"category": "tile", "description": "Tile surface defects (glue strip, oil, crack)"},
-        "bottle": {"category": "bottle", "description": "Bottle defect segmentation (broken, contamination)"},
-        "cable": {"category": "cable", "description": "Cable defects (bent wire, cut insulation)"},
-        "capsule": {"category": "capsule", "description": "Capsule defects (crack, faulty imprint)"},
-        "carpet": {"category": "carpet", "description": "Carpet defects (cut, metal contamination)"},
-        "grid": {"category": "grid", "description": "Grid defects (bent, broken, glue)"},
-        "hazelnut": {"category": "hazelnut", "description": "Hazelnut defects (crack, hole, print)"},
-        "pill": {"category": "pill", "description": "Pill defects (color, crack, imprint)"},
-        "zipper": {"category": "zipper", "description": "Zipper defects (broken/squeezed teeth)"},
+        "steel_defects": {"category": "steel_defects", "description": "Steel Defects"},
+        "tile": {"category": "tile", "description": "Tile"},
+        "bottle": {"category": "bottle", "description": "Bottle"},
+        "grid": {"category": "grid", "description": "Grid"},
     }
 
 def get_system_telemetry():

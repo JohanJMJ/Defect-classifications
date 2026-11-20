@@ -139,7 +139,7 @@ def api_models():
     return jsonify({
         "success": True,
         "models": models,
-        "active_model": vision_engine.current_model_name or "tile",
+        "active_model": vision_engine.current_model_name or "steel_defects",
         "simulation_mode": vision_engine.is_simulation_mode(),
     })
 
@@ -171,7 +171,7 @@ def api_samples(category):
                 samples.append({
                     "name": f.name,
                     "url": f"/sample_images/{category}/{f.name}",
-                    "is_defective": "defective" in f.name.lower() or "broken" in f.name.lower(),
+                    "is_defective": not any(kw in f.name.lower() for kw in ["good", "normal", "pass", "clean"]),
                 })
     return jsonify({"success": True, "category": category, "samples": samples})
 
@@ -185,7 +185,7 @@ def api_inspect():
       - Camera capture ('source_type'='camera') OR
       - Sample library reference ('sample_path' and 'source_type'='sample')
     """
-    model_category = request.form.get("model", "tile").lower()
+    model_category = request.form.get("model", "steel_defects").lower()
     component_id = request.form.get("component_id") or f"COMP-{uuid.uuid4().hex[:6].upper()}"
     source_type = request.form.get("source_type", "upload")
 
@@ -198,6 +198,11 @@ def api_inspect():
     if source_type == "camera":
         image_bgr = camera.capture_snapshot()
         orig_filename = f"camera_{int(time.time())}.jpg"
+        if image_bgr is not None:
+            mean_val = float(image_bgr.mean())
+            print(f"[Inspect] Camera frame captured: shape={image_bgr.shape}, mean_brightness={mean_val:.1f}")
+            if mean_val < 15.0:
+                print(f"[Inspect] WARNING: Camera frame is severely underexposed (brightness={mean_val:.1f})")
 
     elif source_type == "sample":
         rel_sample = request.form.get("sample_path", "")
@@ -273,18 +278,23 @@ def api_inspect():
     defect_label = detections[0]["label"] if defect_detected else "None"
 
     is_continuous_mode = request.form.get("continuous") == "1"
+    run_llama = rule_eval.get("run_llama", True) and not is_continuous_mode
 
-    if is_continuous_mode:
-        # In fast continuous mode, use instant deterministic fast-path triage (< 1ms)
-        llama_text = (
-            f"• Severity: {rule_eval.get('severity', 'NONE')}\n"
-            f"• Assessment: Continuous inspection triage verified ({rule_eval.get('total_mask_pct', 0)}% defect area).\n"
-            f"• Action: {rule_eval.get('rule_action', 'Continue continuous conveyor line.')}"
-        )
-        llama_lat = 0.4
+    if not run_llama:
+        # Fast-Path Rule Analysis for None/Minor tiers OR continuous mode (< 0.5ms, NO LLaMA!)
+        if rule_eval.get("severity") == "None":
+            llama_text = ""
+            llama_lat = 0.0
+        else:
+            llama_text = (
+                f"• Severity: {rule_eval.get('severity', 'Minor')}\n"
+                f"• Assessment: Fast-Path Rule Engine ({rule_eval.get('total_mask_pct', 0):.2f}% area, fuzzy score {rule_eval.get('fuzzy_score', 0):.0f}/100).\n"
+                f"• Action: {rule_eval.get('rule_action', 'Continue standard conveyor flow.')}"
+            )
+            llama_lat = 0.3
         llama_status = "completed"
     else:
-        # Asynchronous decoupled Llama: Return Vision results immediately, generate Llama in background!
+        # Asynchronous decoupled Llama for Moderate, Major, Critical: Return Vision results immediately, generate Llama in background!
         llama_text = "PENDING"
         llama_lat = 0.0
         llama_status = "pending"
@@ -312,6 +322,8 @@ def api_inspect():
         "mask_area_pct": rule_eval["total_mask_pct"],
         "verdict": rule_eval["verdict"],
         "severity": rule_eval["severity"],
+        "fuzzy_score": rule_eval.get("fuzzy_score", 0.0),
+        "trigger_banner": rule_eval.get("trigger_banner", False),
         "rule_action": rule_eval["rule_action"],
         "llama_advisory": llama_text,
         "latency_vision_ms": vision_lat,
@@ -325,8 +337,8 @@ def api_inspect():
     record_data["detections"] = json_detections
     record_data["llama_status"] = llama_status
 
-    # Launch Llama 3B in background worker thread so Vision results return immediately (< 25 ms)!
-    if not is_continuous_mode:
+    # Launch Llama background worker ONLY for Moderate, Major, Critical (bypassed for None and Minor!)
+    if run_llama:
         with advisory_lock:
             advisory_jobs[inspection_id] = {
                 "status": "pending",
