@@ -11,8 +11,8 @@
             <div class="alarm-icon-box">
                 <svg class="alarm-siren-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                    <line x1="12" y1="9" x2="12" y2="13"></line>
-                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    <line x1="12" y1="8.5" x2="12" y2="13" stroke-linecap="round"></line>
+                    <circle cx="12" cy="16.5" r="1.2" fill="currentColor"></circle>
                 </svg>
             </div>
             <div class="alarm-text-block">
@@ -30,7 +30,7 @@
                     <span id="alarmSoundIcon">🔊</span>
                 </button>
                 <button type="button" id="btnAcknowledgeAlarm" class="btn-acknowledge-alarm" title="Acknowledge fault and silence alarm">
-                    ✓ Acknowledge &amp; Silence
+                    Acknowledge
                 </button>
             </div>
         </div>
@@ -304,16 +304,6 @@
                     <div class="metric-value text-green" id="valVisionLatency">-- ms</div>
                 </div>
             </div>
-
-            <div class="progress-bar-container">
-                <div class="progress-bar-label">
-                    <span>Defect Surface Coverage</span>
-                    <span id="labelCoverage">0%</span>
-                </div>
-                <div class="progress-track">
-                    <div class="progress-fill" id="fillCoverage" style="width: 0%;"></div>
-                </div>
-            </div>
         </div>
 
         <!-- Llama Advisory Card -->
@@ -332,10 +322,17 @@
                 <span class="chip chip-purple" id="chipLlamaHw">Pi ARM CPU</span>
             </div>
 
-            <div class="advisory-severity-row">
+            <!-- Idle Status when No Defect -->
+            <div id="llamaIdleBar" class="llama-idle-simple hidden">
+                <span class="status-indicator-dot dot-idle"></span>
+                <span id="llamaIdleText" class="llama-idle-text">Llama Idle</span>
+            </div>
+
+            <div class="advisory-severity-row" id="advisorySeverityRow">
                 <span class="advisory-label">Assessed Severity:</span>
                 <span class="severity-badge badge-none" id="valSeverity">NONE</span>
                 <span class="advisory-latency" id="valLlamaLatency">-- ms</span>
+                <button type="button" class="btn-card-detail" id="btnCardDetail" onclick="openInspectionDetail()" title="Inspect Log &amp; Diagnostic Details">Details</button>
             </div>
 
             <!-- Asynchronous Llama 3B Generation Loading Bar -->
@@ -447,6 +444,27 @@
         </table>
     </div>
 </section>
+
+<!-- Inspection Detail Modal (Pattern A: Embedded Diagnostics & Run History) -->
+<div id="detailModal" class="modal-overlay hidden">
+    <div class="modal-container">
+        <div class="modal-header">
+            <div class="modal-title" id="modalTitle">Inspection Detail #--</div>
+            <button type="button" class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-nav-tabs">
+            <button type="button" class="modal-tab-btn active" id="modalTabBtnDiag" onclick="switchModalTab('diagnostics')">
+                AI Diagnostics &amp; Frames
+            </button>
+            <button type="button" class="modal-tab-btn" id="modalTabBtnHist" onclick="switchModalTab('history')">
+                Recent Batch History
+            </button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <!-- Populated dynamically via JavaScript -->
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
