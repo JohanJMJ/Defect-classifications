@@ -151,6 +151,7 @@ class LlamaAdvisoryEngine:
         runner_path=None,
         model_path=None,
         tokenizer_path=None,
+        server_url=None,
         max_tokens=48,
         temperature=0.0,
     ):
