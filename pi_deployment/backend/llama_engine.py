@@ -64,6 +64,9 @@ def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
 def auto_discover_llama():
     """Searches common paths for ExecuTorch runner, .pte model, and tokenizer, prioritizing 1B models for edge speed."""
     possible_dirs = [
+        Path(__file__).resolve().parent.parent,
+        Path.cwd(),
+        Path.home() / "Desktop" / "pi_deployment_new",
         Path.home() / "executorch-deployment",
         Path("/home/raspberrypi5/executorch-deployment"),
         Path.home() / "Desktop" / "executorch-deployment",
@@ -84,18 +87,21 @@ def auto_discover_llama():
                 tok_files = list(d.glob("*tokenizer*"))
 
                 if runner.is_file() and pte_files and tok_files:
-                    # Prioritize 1B models first for edge speed, otherwise first available .pte
+                    # Prioritize custom fine-tuned model_int4.pte, then model.pte, then other 1b models
+                    int4_pte = [p for p in pte_files if p.name == "model_int4.pte"]
+                    fp16_pte = [p for p in pte_files if p.name == "model.pte"]
                     models_1b = [p for p in pte_files if "1b" in p.name.lower()]
-                    chosen_model = models_1b[0] if models_1b else pte_files[0]
+                    chosen_model = int4_pte[0] if int4_pte else (fp16_pte[0] if fp16_pte else (models_1b[0] if models_1b else pte_files[0]))
 
-                    # Prefer tokenizer.bin or tokenizer.model for Llama
+                    # Prefer tokenizer.json for HuggingFace tokenizer runner, else .model/.bin
+                    json_toks = [t for t in tok_files if t.name.endswith(".json")]
                     model_toks = [t for t in tok_files if t.name.endswith(".model") or t.name.endswith(".bin")]
-                    chosen_tok = model_toks[0] if model_toks else tok_files[0]
+                    chosen_tok = json_toks[0] if json_toks else (model_toks[0] if model_toks else tok_files[0])
 
                     return runner, chosen_model, chosen_tok
                 elif runner.is_file():
-                    model = pte_files[0] if pte_files else (d / "llama-1b.pte")
-                    tok = tok_files[0] if tok_files else (d / "tokenizer.bin")
+                    model = pte_files[0] if pte_files else (d / "model.pte")
+                    tok = tok_files[0] if tok_files else (d / "tokenizer.json")
                     return runner, model, tok
         except Exception:
             continue
@@ -150,9 +156,10 @@ class LlamaAdvisoryEngine:
     ):
         disc_runner, disc_model, disc_tok = auto_discover_llama()
 
-        self.runner_path = Path(runner_path) if runner_path else disc_runner
-        self.model_path = Path(model_path) if model_path else disc_model
-        self.tokenizer_path = Path(tokenizer_path) if tokenizer_path else disc_tok
+        self.runner_path = Path(runner_path).resolve() if runner_path else (disc_runner.resolve() if disc_runner else None)
+        self.model_path = Path(model_path).resolve() if model_path else (disc_model.resolve() if disc_model else None)
+        self.tokenizer_path = Path(tokenizer_path).resolve() if tokenizer_path else (disc_tok.resolve() if disc_tok else None)
+        self.server_url = server_url
         self.max_tokens = int(max_tokens)
         self.temperature = float(temperature)
 
@@ -210,43 +217,41 @@ class LlamaAdvisoryEngine:
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
         """
-        Builds a KB-enriched 1-shot prompt (~85 tokens) with assistant pre-filling.
-        Injects failure_modes and risk_threshold so the model produces domain-specific,
-        failure-mode-aware assessments rather than generic sentences.
+        Builds the exact prompt template matching our Unsloth QLoRA fine-tuning dataset.
+        Format:
+          <|begin_of_text|><|start_header_id|>system<|end_header_id|>
+          You are an expert Industrial Quality Control (QC) Engineer.
+          - Severity level (CRITICAL, MAJOR, MODERATE, MINOR)
+          - Technical root cause engineering assessment
+          - Immediate manufacturing corrective action<|eot_id|>
+          <|start_header_id|>user<|end_header_id|>
+          Part: {CATEGORY} ({SPEC}). Defect: {LABEL} (area: {AREA}%, confidence: {CONF}%). Preliminary Rule Verdict: {VERDICT}.<|eot_id|>
+          <|start_header_id|>assistant<|end_header_id|>
         """
         cat_key = category.lower()
         kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["steel_defects"])
 
-        total_pct = rule_eval.get("total_mask_pct", 0)
+        total_pct = rule_eval.get("total_mask_pct", 0.0)
         verdict = rule_eval.get("verdict", "REJECT")
-        severity = rule_eval.get("severity", "CRITICAL")
-        conf_pct = rule_eval.get("max_confidence", 0) * 100
+        severity_tier = str(rule_eval.get("severity", "CRITICAL")).upper()
+        conf_pct = rule_eval.get("max_confidence", 0.85) * 100.0
 
         # Clean defect labels
         labels = sorted(list(set(d.get('label', 'defect') for d in detections)))
         det_names = "/".join(labels) if labels else "defect"
-        count = len(detections)
-        det_desc = f"{count} {det_names} anomaly" if count == 1 else f"{count} {det_names} anomalies"
-
-        # Category-matched 1-shot example (falls back to steel_defects if unknown)
-        ex_assessment, ex_action = self._CATEGORY_EXAMPLES.get(
-            cat_key, self._CATEGORY_EXAMPLES["steel_defects"]
-        )
 
         prompt = (
-            f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"Industrial QC Engineer. Exactly 1 sentence per bullet (max 12 words).\n"
-            f"Example ({cat_key}):\n"
-            f"- Assessment: {ex_assessment}\n"
-            f"- Action: {ex_action}<|eot_id|>\n"
-            f"<|start_header_id|>user<|end_header_id|>\n"
+            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+            "You are an expert Industrial Quality Control (QC) Engineer.\n"
+            "- Severity level (CRITICAL, MAJOR, MODERATE, MINOR)\n"
+            "- Technical root cause engineering assessment\n"
+            "- Immediate manufacturing corrective action<|eot_id|>"
+            "<|start_header_id|>user<|end_header_id|>\n\n"
             f"Part: {category.upper()} ({kb['material']}). "
-            f"Known failures: {kb['failure_modes']}. "
-            f"Risk: {kb['risk_threshold']} "
-            f"Defect: {det_desc} ({total_pct:.1f}% area, {conf_pct:.0f}% conf). "
-            f"Verdict: {verdict}.<|eot_id|>\n"
-            f"<|start_header_id|>assistant<|end_header_id|>\n"
-            f"- Severity: {severity}\n"
+            f"Defect: {det_names} (area: {total_pct:.1f}%, confidence: {conf_pct:.0f}%). "
+            f"Preliminary Rule Verdict: {verdict}.<|eot_id|>"
+            "<|start_header_id|>assistant<|end_header_id|>\n\n"
+            f"- Severity: {severity_tier}\n"
             f"- Assessment:"
         )
         return prompt
@@ -359,23 +364,41 @@ class LlamaAdvisoryEngine:
             elif prompt in out:
                 out = out.replace(prompt, "")
 
-            out = out.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
+            # Strip anything after end-of-text / end-of-turn tokens
+            for end_tok in ["<|eot_id|>", "<|end_of_text|>", "<|start_header_id|>"]:
+                if end_tok in out:
+                    out = out.split(end_tok)[0]
 
-            severity = rule_eval.get("severity", "CRITICAL")
+            out = out.strip()
+
+            # Enforce single source of truth: Severity always strictly matches Neuro-Fuzzy triage
+            severity_upper = str(rule_eval.get("severity", "CRITICAL")).upper()
             cat_key = category.lower()
             kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["steel_defects"])
 
-            # Ensure complete 3-bullet structure even if runner only returned newly generated tokens
-            if not out.startswith("- Severity:") and not out.startswith("• Severity:"):
-                if out.startswith("- Assessment:") or out.startswith("Assessment:"):
-                    out = f"- Severity: {severity}\n" + out
-                else:
-                    out = f"- Severity: {severity}\n- Assessment: " + out.lstrip("- ")
+            if "- Assessment:" in out:
+                assessment_part = out.split("- Assessment:", 1)[1].strip()
+                out = f"- Severity: {severity_upper}\n- Assessment: {assessment_part}"
+            elif not out.startswith("- Severity:") and not out.startswith("• Severity:"):
+                out = f"- Severity: {severity_upper}\n- Assessment: {out.lstrip('- ')}"
+            else:
+                lines = out.split("\n", 1)
+                rest = lines[1] if len(lines) > 1 else ""
+                out = f"- Severity: {severity_upper}\n{rest}"
 
             # Safety guarantee: If output was truncated before writing Action, append verified tooling CAPA
-            if "- Action:" not in out and "• Action:" not in out and "Action:" not in out:
-                fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
+            fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
+            has_action = any(tag in out for tag in ["- Action:", "• Action:", "Action:", "- Immediate Action:"])
+            if not has_action:
                 out = out.rstrip().rstrip(".") + f".\n- Action: {fallback_act}"
+            else:
+                for tag in ["- Action:", "• Action:", "- Immediate Action:", "Action:"]:
+                    if tag in out:
+                        parts = out.split(tag, 1)
+                        act_text = parts[1].strip()
+                        if len(act_text) < 15 or not act_text.endswith((".", "!", "?")):
+                            out = parts[0].strip() + f"\n- Action: {fallback_act}"
+                        break
 
             return out if out else (
                 f"• Severity: {rule_eval.get('severity', 'UNKNOWN')}\n"
