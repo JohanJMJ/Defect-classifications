@@ -64,6 +64,8 @@ def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
 def auto_discover_llama():
     """Searches common paths for ExecuTorch runner, .pte model, and tokenizer, prioritizing 1B models for edge speed."""
     possible_dirs = [
+        Path("/home/raspberrypi5/executorch-new"),
+        Path.home() / "executorch-new",
         Path(__file__).resolve().parent.parent,
         Path.cwd(),
         Path.home() / "Desktop" / "pi_deployment_new",

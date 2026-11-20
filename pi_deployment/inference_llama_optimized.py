@@ -45,6 +45,8 @@ except ImportError as e:
 def find_default_llama_paths():
     """Locate local ExecuTorch assets, prioritizing current folder and pi_deployment_new."""
     candidates = [
+        Path("/home/raspberrypi5/executorch-new"),
+        Path.home() / "executorch-new",
         SCRIPT_DIR,
         Path.cwd(),
         Path.home() / "Desktop" / "pi_deployment_new",
