@@ -831,6 +831,26 @@ body.theme-light .viewfinder-header {
     color: var(--status-pass);
 }
 
+.verdict-divert {
+    background: rgba(245, 158, 11, 0.12);
+    border: 2px solid #F59E0B;
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.25);
+}
+
+.verdict-divert .verdict-title {
+    color: #F59E0B;
+}
+
+.verdict-inspect {
+    background: rgba(249, 115, 22, 0.15);
+    border: 2px solid #F97316;
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.3);
+}
+
+.verdict-inspect .verdict-title {
+    color: #F97316;
+}
+
 .verdict-monitor {
     background: var(--status-monitor-bg);
     border: 2px solid var(--status-monitor);
@@ -990,27 +1010,63 @@ body.theme-light .progress-track {
 }
 
 .badge-none {
-    background: var(--border-color);
-    color: var(--text-muted);
+    background: var(--status-pass-bg);
+    color: var(--status-pass);
+    border: 1px solid var(--status-pass);
 }
 
-.badge-low {
-    background: rgba(59, 130, 246, 0.2);
-    color: var(--accent-blue);
-    border: 1px solid var(--accent-blue);
+.badge-minor {
+    background: rgba(6, 182, 212, 0.15);
+    color: var(--accent-cyan);
+    border: 1px solid var(--accent-cyan);
 }
 
-.badge-medium {
-    background: var(--status-monitor-bg);
-    color: var(--status-monitor);
-    border: 1px solid var(--status-monitor);
+.badge-moderate {
+    background: rgba(245, 158, 11, 0.15);
+    color: #F59E0B;
+    border: 1px solid #F59E0B;
 }
 
-.badge-high,
+.badge-major {
+    background: rgba(249, 115, 22, 0.18);
+    color: #F97316;
+    border: 1px solid #F97316;
+}
+
 .badge-critical {
     background: var(--status-reject-bg);
     color: var(--status-reject);
     border: 1px solid var(--status-reject);
+}
+
+.badge-low {
+    background: rgba(6, 182, 212, 0.15);
+    color: var(--accent-cyan);
+    border: 1px solid var(--accent-cyan);
+}
+
+.badge-medium {
+    background: rgba(245, 158, 11, 0.15);
+    color: #F59E0B;
+    border: 1px solid #F59E0B;
+}
+
+.badge-high {
+    background: rgba(249, 115, 22, 0.18);
+    color: #F97316;
+    border: 1px solid #F97316;
+}
+
+.badge-divert {
+    background: rgba(245, 158, 11, 0.15);
+    color: #F59E0B;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.badge-inspect {
+    background: rgba(249, 115, 22, 0.18);
+    color: #F97316;
+    border: 1px solid rgba(249, 115, 22, 0.4);
 }
 
 .advisory-latency {

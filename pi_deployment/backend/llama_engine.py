@@ -280,18 +280,19 @@ class LlamaAdvisoryEngine:
         pct = rule_eval.get("total_mask_pct", 1.5)
         conf = rule_eval.get("max_confidence", 0.90) * 100.0
 
-        if severity == "CRITICAL":
-            assessment = f"Severe anomaly detected across {pct}% of {category} surface with {conf:.1f}% confidence, indicating structural breach or contamination."
-            action = f"Immediate rejection required. Quarantine lot, stop feeder line, and inspect tooling calibration."
-        elif severity == "HIGH":
-            assessment = f"Pronounced surface defect covering {pct}% detected ({conf:.1f}% certitude), exceeding nominal tolerance limit."
-            action = f"Divert part to rework bin. Schedule secondary optical probe and check batch alignment."
-        elif severity == "MEDIUM":
-            assessment = f"Moderate surface variation covering {pct}% observed; does not impair core structural integrity but fails aesthetic QA."
-            action = f"Flag for secondary manual inspection. Clean component surface and evaluate next inspection station."
+        sev_upper = str(severity).upper()
+        if sev_upper == "CRITICAL":
+            assessment = f"Critical defect detected across {pct}% of {category} surface ({conf:.1f}% confidence), indicating severe structural breach or material defect."
+            action = f"Immediate rejection required. Auto-reject to scrap bin, stop feeder line, and inspect tooling calibration."
+        elif sev_upper == "MAJOR":
+            assessment = f"Major surface defect covering {pct}% detected ({conf:.1f}% certitude), exceeding nominal operating tolerance."
+            action = f"Hold component at inspection station. Require manual quality inspector sign-off before proceeding."
+        elif sev_upper == "MODERATE":
+            assessment = f"Moderate surface anomaly covering {pct}% observed. Functional integrity intact, but requires diversion."
+            action = f"Divert component from main conveyor to buffer/rework lane. Monitor station variance."
         else:
-            assessment = f"Minor cosmetic anomaly ({pct}%) within acceptable marginal operating thresholds."
-            action = f"Pass with monitoring flag. Track batch defect density over next 50 cycles."
+            assessment = f"Minor cosmetic anomaly ({pct}%) within allowable marginal operating thresholds."
+            action = f"Pass with cosmetic notice. Cleared for standard continuous manufacturing flow."
 
         advisory_text = (
             f"• Severity: {severity}\n"

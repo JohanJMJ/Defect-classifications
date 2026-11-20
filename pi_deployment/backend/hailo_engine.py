@@ -379,11 +379,21 @@ class HailoVisionEngine:
             npu_tag = "Hailo-8" if not self.force_simulation else "Simulated NPU"
             hud_parts.append(f"{npu_tag}: {latency_ms:.1f}ms")
         if rule_eval is not None:
-            hud_parts.append(f"Verdict: {rule_eval['verdict']}")
+            verd = rule_eval.get("verdict", "PASS")
+            hud_parts.append(f"Verdict: {verd}")
+            if "fuzzy_score" in rule_eval:
+                hud_parts.append(f"Risk: {rule_eval['fuzzy_score']:.0f}/100")
 
         hud_text = " | ".join(hud_parts)
-        is_pass = (not rule_eval or rule_eval.get("verdict") == "PASS")
-        status_color = (0, 200, 0) if is_pass else (0, 0, 240)
+        v = rule_eval.get("verdict", "PASS") if rule_eval else "PASS"
+        if v == "PASS":
+            status_color = (0, 200, 0)
+        elif v == "DIVERT":
+            status_color = (0, 180, 240)  # Amber
+        elif v == "INSPECT":
+            status_color = (0, 140, 255)  # Orange
+        else:
+            status_color = (0, 0, 240)    # Red
 
         cv2.putText(annotated, hud_text, (16, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
         return annotated

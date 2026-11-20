@@ -70,8 +70,13 @@ class AlertManager:
                     time.sleep(1.0)
                     GPIO.output(PIN_GREEN_LED, GPIO.LOW)
 
-                elif verdict == "FLAGGED_MONITOR":
+                elif verdict in ["DIVERT", "INSPECT", "FLAGGED_MONITOR"]:
                     GPIO.output(PIN_YELLOW_LED, GPIO.HIGH)
+                    if verdict == "INSPECT":
+                        # Brief attention chirp for inspection hold
+                        GPIO.output(PIN_BUZZER, GPIO.HIGH)
+                        time.sleep(0.1)
+                        GPIO.output(PIN_BUZZER, GPIO.LOW)
                     time.sleep(1.5)
                     GPIO.output(PIN_YELLOW_LED, GPIO.LOW)
 
