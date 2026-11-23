@@ -11,6 +11,8 @@ This directory contains the runtime binaries, libraries, and tokenizer configura
 | `llama_main` | 7.16 MB | Pre-compiled ARM64 (Linux aarch64) C++ executable runner for ExecuTorch with XNNPACK acceleration. |
 | `libllama_runner.so` | 4.43 MB | Dynamic shared library dependency providing ExecuTorch operator kernels and runtime interfaces. |
 | `tokenizer.json` | 17.2 MB | Hugging Face Byte-Pair Encoding (BPE) tokenizer vocabulary and merges for LLaMA 3.2 1B Instruct. |
+| `fine_tune_and_export_int4.ipynb` | 31 KB | Automated Google Colab notebook for QLoRA fine-tuning and INT4 SpinQuant ExecuTorch export. |
+| `generate_qc_llama_dataset.py` | 17 KB | Standalone script generating 1,200 domain-specific instruction samples across 4 materials and 20 defect classes. |
 | `README.md` | -- | Runtime deployment and execution guide. |
 | `FINETUNING.md` | -- | Detailed technical report on QLoRA fine-tuning, INT4 SpinQuant quantization, and ExecuTorch export. |
 
@@ -40,6 +42,27 @@ pip install gdown
 gdown --folder https://drive.google.com/drive/folders/1pvlX7Eze1BcTVn0lEq0u6UkBroa4ebnA?usp=drive_link
 mv model_int4.pte llama/
 ```
+
+---
+
+## Fine-Tuning and INT4 Export Notebook
+
+The end-to-end training and quantization workflow is self-contained in the provided Jupyter notebook:
+- [`fine_tune_and_export_int4.ipynb`](fine_tune_and_export_int4.ipynb)
+
+### Pipeline Stages in the Notebook
+1. **Environment Setup & Google Drive Storage:** Mounts Google Drive and configures Unsloth, Hugging Face TRL/PEFT, and Meta ExecuTorch dependencies.
+2. **Domain Dataset Synthesis:** Generates 1,200 balanced instruction-tuning pairs across four inspection domains (Hot-Rolled Steel Strip, Ceramic Tile, Glass Bottle, and Wire Mesh Grid) with 20 defect classes.
+3. **QLoRA Fine-Tuning:** Loads `Llama-3.2-1B-Instruct-bnb-4bit` with Rank $r=16$, $\alpha=16$ on all linear projection layers (`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`), trained for 150 steps using cosine learning rate scheduling ($2 \times 10^{-4}$).
+4. **16-Bit Weight Merging:** Merges LoRA adapter deltas back into FP16 Hugging Face model format (`/content/llama_3_2_1b_qc_custom`).
+5. **INT4 SpinQuant & ExecuTorch Compilation:** Quantizes weights via `optimum-cli export executorch` using `8da4w` dynamic linear quantization and `4w` embedding quantization with the XNNPACK kernel backend, producing the standalone `model_int4.pte` binary (~789 MB).
+
+### Standalone Dataset Generation
+To re-generate the 1,200 instruction dataset locally or on a server without running the full notebook:
+```bash
+python llama/generate_qc_llama_dataset.py
+```
+This writes `industrial_qc_llama_dataset.json` and `.jsonl` into `llama/data/`.
 
 ---
 

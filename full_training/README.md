@@ -1,4 +1,4 @@
-# Production Model Weights and Benchmark Specifications
+# Proposed Model Weights and Benchmark Specifications
 
 This directory stores the production-grade PyTorch (`.pt`) model weights for all four industrial quality inspection domains: Ceramic Tile, Glass Bottle Packaging, Wire Mesh Grid, and Hot-Rolled Steel Strip.
 
@@ -7,6 +7,8 @@ All four production models achieve **over 90% mAP@0.5**, verified on curated, ph
 ---
 
 ## 1. Verified 90%+ Benchmark Summary
+
+![Proposed Model vs Baseline](proposed_model_vs_baseline.png)
 
 | Model Weights File | Domain | Task | Architecture | Parameters | Target Defect Classes | Precision | Recall | F1-Score | **mAP@0.5** | Model Size |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |

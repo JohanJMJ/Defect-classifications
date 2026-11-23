@@ -67,7 +67,7 @@ Defect-classifications/
 ├── HAT+ quatization/             # Hailo AI HAT+ quantization and HEF compilation tools
 │   ├── compile_hef.py            # Python compiler script (YOLO .pt -> Hailo .hef)
 │   ├── run_compiler.sh           # Dockerized runner bridging host to Ubuntu 22.04 runtime
-│   └── hef_output/               # Pre-compiled Hailo Executable Format (.hef) binaries
+│   └── hailo_cli.sh              # Hailo CLI wrapper for Docker bridge
 └── pi_deployment/                # Complete deployment package for Raspberry Pi 5
     ├── backend/                  # AI Engines & Hardware Abstraction
     │   ├── hailo_engine.py       # Native HailoRT runner + self-healing PCIe reset + PC simulation
