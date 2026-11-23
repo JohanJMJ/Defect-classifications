@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Industrial QC LLaMA Dataset Generator
-====================================
+Industrial Quality Control LLaMA Instruction Dataset Generator
+============================================================
 Generates a domain-specific instruction fine-tuning dataset for LLaMA 3.2 (1B/3B)
-covering the 4 industrial materials and 20 defect classes in this repository:
-  1. STEEL (NEU-DET): crazing, inclusion, patches, pitted_surface, rolled-in_scale, scratches
-  2. BOTTLE (MVTec Bottle): broken_large, broken_small, contamination
-  3. GRID / NET (MVTec Grid): bent, broken, glue, metal_contamination, thread
-  4. TILE (MVTec Tile): crack, cut, glue_strip, gray_stroke, oil, rough
+covering four industrial materials and 20 defect classes:
+  1. Steel Strip (NEU-DET): crazing, inclusion, patches, pitted_surface, rolled-in_scale, scratches
+  2. Glass Bottle (MVTec AD): broken_large, broken_small, contamination
+  3. Wire Mesh Grid (MVTec AD): bent, broken, glue, metal_contamination, thread
+  4. Ceramic Tile (MVTec AD): crack, cut, glue_strip, gray_stroke, oil, rough
 """
 
 import json
@@ -16,7 +16,7 @@ from pathlib import Path
 
 random.seed(42)
 
-# Domain Knowledge Base for the 4 Datasets
+# Domain Knowledge Base for the four inspection categories
 DEFECT_KB = {
     "steel": {
         "material": "Hot/Cold-Rolled Carbon Steel Sheet & Strip (ASTM A1008/A568)",
@@ -310,7 +310,6 @@ INSTRUCTION_PROMPT = (
 
 def generate_samples(num_samples=1200):
     samples = []
-    
     categories = list(DEFECT_KB.keys())
     
     for i in range(num_samples):
@@ -321,25 +320,22 @@ def generate_samples(num_samples=1200):
         defect_name = random.choice(list(cat_info["defects"].keys()))
         defect_data = cat_info["defects"][defect_name]
         
-        # Random realistic detection telemetry
+        # Simulated realistic detection telemetry
         area_pct = round(random.uniform(0.2, 12.5), 1)
         conf_pct = random.randint(72, 99)
         
-        # Pick severity, assessment, action
         severity = random.choice(defect_data["severities"])
         assessment = random.choice(defect_data["assessments"])
         action = random.choice(defect_data["actions"])
         
         verdict = "REJECT" if severity == "CRITICAL" else ("QUARANTINE" if severity == "MAJOR" else "REWORK")
         
-        # Input prompt matching YOLO inference output
         input_text = (
             f"Part: {cat.upper()} ({material_str}). "
             f"Defect: {defect_name} (area: {area_pct}%, confidence: {conf_pct}%). "
             f"Preliminary Rule Verdict: {verdict}."
         )
         
-        # Ground truth expert QC response
         output_text = (
             f"- Severity: {severity}\n"
             f"- Assessment: {assessment}\n"
@@ -367,27 +363,24 @@ def main():
     jsonl_path = out_dir / "industrial_qc_llama_dataset.jsonl"
     
     print("=" * 70)
-    print("🏭 INDUSTRIAL QC LLAMA INSTRUCTION DATASET GENERATOR")
-    print(f"   Target Categories: {list(DEFECT_KB.keys())}")
-    print(f"   Total Unique Defect Classes: {sum(len(v['defects']) for v in DEFECT_KB.values())}")
+    print("Industrial Quality Control LLaMA Instruction Dataset Generator")
+    print(f"Target Categories: {list(DEFECT_KB.keys())}")
+    print(f"Total Unique Defect Classes: {sum(len(v['defects']) for v in DEFECT_KB.values())}")
     print("=" * 70)
     
     samples = generate_samples(num_samples=1200)
     
-    # Save standard JSON
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(samples, f, indent=2, ensure_ascii=False)
         
-    # Save JSONL (standard for HuggingFace / Unsloth)
     with open(jsonl_path, "w", encoding="utf-8") as f:
         for s in samples:
             f.write(json.dumps(s, ensure_ascii=False) + "\n")
             
-    print(f"✅ Generated {len(samples)} high-quality QC instruction samples!")
-    print(f"   • JSON  format: {json_path}")
-    print(f"   • JSONL format: {jsonl_path}")
+    print(f"Generated {len(samples)} QC instruction samples.")
+    print(f"  JSON format:  {json_path}")
+    print(f"  JSONL format: {jsonl_path}")
     
-    # Print sample
     print("\n--- SAMPLE PREVIEW ---")
     s0 = samples[0]
     print(f"INPUT:\n{s0['input']}\n")
