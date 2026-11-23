@@ -29,8 +29,9 @@ update_code.zip
 .DS_Store
 Thumbs.db
 
-# Large Model Binaries (ExecuTorch .pte > 100MB)
+# Large Model Binaries (ExecuTorch .pte > 100MB, ONNX intermediates)
 *.pte
+*.onnx
 llama_bin/
 
 # Temporary training / eval runs and datasets
