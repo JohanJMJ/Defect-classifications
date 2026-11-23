@@ -20,9 +20,14 @@ AVAILABLE_CATEGORIES = [
     "steel_defects", "bottle", "grid", "tile"
 ]
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_DIR = SCRIPT_DIR.parent / "pi_deployment" / "models"
+
 
 def compile_single_model(category, arch="hailo8", model_path=None, data_path=None, imgsz=640, output_dir=None, fast=False):
-    base_dir = Path(__file__).resolve().parent
+    base_dir = SCRIPT_DIR
+    if output_dir is None:
+        output_dir = DEFAULT_OUTPUT_DIR
 
     # Determine model path
     if model_path:
@@ -31,6 +36,12 @@ def compile_single_model(category, arch="hailo8", model_path=None, data_path=Non
         candidate_pt = (base_dir / "full_training" / f"{category}_production_best.pt").resolve()
         if not candidate_pt.exists():
             candidate_pt = (base_dir.parent / "full_training" / f"{category}_production_best.pt").resolve()
+        if not candidate_pt.exists() and category in ("steel_defects", "steel"):
+            alt_pt = (base_dir / "full_training" / "steel_production_best.pt").resolve()
+            if not alt_pt.exists():
+                alt_pt = (base_dir.parent / "full_training" / "steel_production_best.pt").resolve()
+            if alt_pt.exists():
+                candidate_pt = alt_pt
         pt_file = candidate_pt
 
     if not pt_file.exists():
@@ -48,6 +59,8 @@ def compile_single_model(category, arch="hailo8", model_path=None, data_path=Non
 
     if not data_yaml.exists():
         print(f"❌ Error: Calibration dataset not found at {data_yaml}")
+        print("💡 Note: Calibration datasets are kept local/external to conserve repository storage.")
+        print("   Specify your local calibration configuration using --data /path/to/data.yaml")
         return False
 
     print("=" * 60)
@@ -159,13 +172,13 @@ def main():
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Compile all 15 categories sequentially"
+        help=f"Compile all {len(AVAILABLE_CATEGORIES)} production categories sequentially ({', '.join(AVAILABLE_CATEGORIES)})"
     )
     parser.add_argument(
         "-o", "--output-dir",
         type=str,
-        default="hef_output",
-        help="Directory to store compiled .hef files"
+        default=str(DEFAULT_OUTPUT_DIR),
+        help="Directory to store compiled .hef files (defaults to pi_deployment/models)"
     )
 
     args = parser.parse_args()
