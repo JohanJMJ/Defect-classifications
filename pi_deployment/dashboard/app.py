@@ -1,8 +1,3 @@
-"""
-Industrial Quality Control Web Application & API
-Flask Server for Raspberry Pi 5 + Hailo-8 AI HAT+ & PC Development
-"""
-
 import os
 from pathlib import Path
 import threading
@@ -11,12 +6,9 @@ import uuid
 import cv2
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
-
 import sys
-# Ensure dashboard and backend modules can be imported
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from backend.hailo_engine import HailoVisionEngine
 from backend.llama_engine import LlamaAdvisoryEngine
 from backend.rule_engine import evaluate_rules
@@ -43,7 +35,6 @@ llama_engine = LlamaAdvisoryEngine(backend="auto")
 alert_mgr = AlertManager(enable_gpio=True)
 camera = CameraStreamer(camera_index=0)
 
-# Asynchronous Background Llama Job Registry
 advisory_jobs = {}
 advisory_lock = threading.Lock()
 
@@ -72,7 +63,6 @@ def _async_llama_worker(inspection_id, category, detections, image_shape, rule_e
     except Exception as e:
         print(f"[Async Llama DB Error] {e}")
 
-
 @app.route("/")
 def index():
     models = config.get_available_models()
@@ -82,7 +72,6 @@ def index():
         is_simulation=vision_engine.is_simulation_mode(),
     )
 
-
 @app.route("/history")
 def history_page():
     models = config.get_available_models()
@@ -90,7 +79,6 @@ def history_page():
         "history.html",
         models=models,
     )
-
 
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
@@ -102,7 +90,6 @@ def serve_sample(category, filename):
     cat_dir = config.SAMPLE_IMAGES_DIR / category
     return send_from_directory(str(cat_dir), filename)
 
-
 @app.route("/video_feed")
 def video_feed():
     """MJPEG Live Camera Stream Route (activates camera on connection, releases on disconnect)."""
@@ -111,27 +98,19 @@ def video_feed():
         mimetype="multipart/x-mixed-replace; boundary=frame"
     )
 
-
 @app.route("/api/camera/start", methods=["POST"])
 def api_camera_start():
     success = camera.open_camera()
     return jsonify({"success": success, "active": camera.is_active()})
-
 
 @app.route("/api/camera/stop", methods=["POST"])
 def api_camera_stop():
     camera.release()
     return jsonify({"success": True, "active": False})
 
-
 @app.route("/api/camera/status", methods=["GET"])
 def api_camera_status():
     return jsonify({"success": True, "active": camera.is_active()})
-
-
-# ---------------------------------------------------------------------
-# REST API Endpoints
-# ---------------------------------------------------------------------
 
 @app.route("/api/models", methods=["GET"])
 def api_models():
@@ -142,7 +121,6 @@ def api_models():
         "active_model": vision_engine.current_model_name or "steel_defects",
         "simulation_mode": vision_engine.is_simulation_mode(),
     })
-
 
 @app.route("/api/telemetry", methods=["GET"])
 def api_telemetry():
@@ -160,7 +138,6 @@ def api_telemetry():
         telemetry["llama_location"] = "Simulation Mode"
     return jsonify({"success": True, "telemetry": telemetry})
 
-
 @app.route("/api/samples/<category>", methods=["GET"])
 def api_samples(category):
     cat_dir = config.SAMPLE_IMAGES_DIR / category
@@ -175,24 +152,13 @@ def api_samples(category):
                 })
     return jsonify({"success": True, "category": category, "samples": samples})
 
-
 @app.route("/api/inspect", methods=["POST"])
 def api_inspect():
-    """
-    Core inspection execution endpoint.
-    Accepts:
-      - File upload ('file') OR
-      - Camera capture ('source_type'='camera') OR
-      - Sample library reference ('sample_path' and 'source_type'='sample')
-    """
     model_category = request.form.get("model", "steel_defects").lower()
     component_id = request.form.get("component_id") or f"COMP-{uuid.uuid4().hex[:6].upper()}"
     source_type = request.form.get("source_type", "upload")
-
     image_bgr = None
     orig_filename = ""
-
-    # 1. Acquire Image
     print(f"[Inspect] Received request: source_type='{source_type}', model='{model_category}'")
 
     if source_type == "camera":
@@ -213,10 +179,6 @@ def api_inspect():
                 "error": f"Camera frame is severely underexposed (brightness: {mean_val:.1f}/255). Ensure sufficient lighting or remove lens cap."
             }), 400
 
-        # Intelligent Center-Square Cropping:
-        # Standard webcams capture at 4:3 (e.g. 640x480) or 16:9.
-        # Defect segmentation models (YOLO) are trained on 1:1 square (640x640).
-        # Center-cropping isolates the component in the center and eliminates 80px gray letterbox padding.
         h, w = image_bgr.shape[:2]
         if w > h:
             offset = (w - h) // 2
@@ -227,12 +189,11 @@ def api_inspect():
 
     elif source_type == "sample":
         rel_sample = request.form.get("sample_path", "")
-        # Sanitize path across Linux and Windows
         clean_rel = rel_sample.replace("/sample_images/", "").lstrip("/\\")
         sample_path = config.SAMPLE_IMAGES_DIR / clean_rel
         if sample_path.is_file():
             image_bgr = cv2.imread(str(sample_path))
-            orig_filename = clean_rel  # Preserve relative path e.g. "tile/defective_crack.png"
+            orig_filename = clean_rel 
         else:
             print(f"[Inspect] Sample file not found: {sample_path}")
             return jsonify({"success": False, "error": f"Sample not found: {clean_rel}"}), 404
@@ -252,7 +213,6 @@ def api_inspect():
         nparr = np.frombuffer(file_bytes, np.uint8)
         image_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # Fallback to PIL Image if OpenCV fails to decode (e.g. WebP, mobile orientations)
         if image_bgr is None:
             try:
                 from PIL import Image
@@ -275,26 +235,24 @@ def api_inspect():
 
     # Save original
     cv2.imwrite(str(raw_path), image_bgr)
-
-    # 2. Vision AI Inference (Hailo-8 / Mock)
     try:
         detections, vision_lat = vision_engine.infer(image_bgr, model_name=model_category, image_name=orig_filename)
     except Exception as e:
         return jsonify({"success": False, "error": f"Vision inference failed: {e}"}), 500
 
-    # 3. Rule Engine Triage (< 0.1ms)
+    # Rule Engine Triage (< 0.1ms)
     rule_eval = evaluate_rules(detections, image_bgr.shape, category=model_category)
 
-    # 4. Render Visualization & Save Annotated Image
+    # Render Visualization & Save Annotated Image
     annotated_bgr = vision_engine.draw_visualizations(
         image_bgr, detections, rule_eval, latency_ms=vision_lat
     )
     cv2.imwrite(str(annotated_path), annotated_bgr)
 
-    # 5. Physical & Dashboard Alerts (< 1ms)
+    # Physical & Dashboard Alerts (< 1ms)
     alert_mgr.trigger_inspection_alert(rule_eval["verdict"], rule_eval["severity"])
 
-    # 6. Store to SQLite DB
+    # Store to SQLite DB
     defect_detected = len(detections) > 0
     defect_label = detections[0]["label"] if defect_detected else "None"
 
@@ -358,7 +316,7 @@ def api_inspect():
     record_data["detections"] = json_detections
     record_data["llama_status"] = llama_status
 
-    # Launch Llama background worker ONLY for Moderate, Major, Critical (bypassed for None and Minor!)
+    # Launch Llama background worker ONLY for Moderate, Major and Critical
     if run_llama:
         with advisory_lock:
             advisory_jobs[inspection_id] = {
@@ -377,10 +335,8 @@ def api_inspect():
         "inspection": record_data
     })
 
-
 @app.route("/api/advisory/<int:inspection_id>", methods=["GET"])
 def api_get_advisory(inspection_id):
-    """Polls status and result of asynchronous Llama 3B generation."""
     with advisory_lock:
         job = advisory_jobs.get(inspection_id)
     if job:
@@ -402,7 +358,6 @@ def api_get_advisory(inspection_id):
 
     return jsonify({"success": True, "status": "pending"})
 
-
 @app.route("/api/history", methods=["GET"])
 def api_history():
     limit = int(request.args.get("limit", 25))
@@ -421,14 +376,12 @@ def api_history():
         "stats": stats,
     })
 
-
 @app.route("/api/history/<int:insp_id>", methods=["GET"])
 def api_history_detail(insp_id):
     row = db.get_inspection_by_id(insp_id)
     if not row:
         return jsonify({"success": False, "error": "Not found"}), 404
     return jsonify({"success": True, "inspection": row})
-
 
 @app.route("/api/export/csv", methods=["GET"])
 def api_export_csv():
@@ -439,13 +392,11 @@ def api_export_csv():
         headers={"Content-Disposition": f"attachment;filename=qc_inspections_{int(time.time())}.csv"}
     )
 
-
 @app.route("/api/alerts/test", methods=["POST"])
 def api_test_alert():
     verdict = request.json.get("verdict", "PASS")
     alert_mgr.trigger_inspection_alert(verdict, severity="TEST")
     return jsonify({"success": True, "verdict": verdict, "status": alert_mgr.get_status()})
-
 
 if __name__ == "__main__":
     print(f"============================================================")

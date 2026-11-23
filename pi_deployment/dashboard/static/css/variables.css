@@ -1,0 +1,100 @@
+:root,
+body.theme-dark {
+    --bg-dark: #090D16;
+    --card-bg: #111827;
+    --card-bg-light: #162032;
+    --border-color: #1F293D;
+    --border-highlight: #374151;
+
+    --text-main: #F3F4F6;
+    --text-muted: #9CA3AF;
+    --text-dim: #6B7280;
+
+    --accent-cyan: #06B6D4;
+    --accent-blue: #3B82F6;
+    --accent-purple: #8B5CF6;
+
+    --status-pass: #10B981;
+    --status-pass-bg: rgba(16, 185, 129, 0.12);
+    --status-pass-border: rgba(16, 185, 129, 0.35);
+
+    --status-monitor: #F59E0B;
+    --status-monitor-bg: rgba(245, 158, 11, 0.12);
+    --status-monitor-border: rgba(245, 158, 11, 0.35);
+
+    --status-reject: #EF4444;
+    --status-reject-bg: rgba(239, 68, 68, 0.12);
+    --status-reject-border: rgba(239, 68, 68, 0.35);
+
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+body.theme-light {
+    --bg-dark: #F1F5F9;
+    --card-bg: #FFFFFF;
+    --card-bg-light: #F8FAFC;
+    --border-color: #E2E8F0;
+    --border-highlight: #CBD5E1;
+
+    --text-main: #0F172A;
+    --text-muted: #475569;
+    --text-dim: #64748B;
+
+    --accent-cyan: #0284C7;
+    --accent-blue: #2563EB;
+    --accent-purple: #7C3AED;
+
+    --status-pass: #059669;
+    --status-pass-bg: rgba(5, 150, 105, 0.10);
+    --status-pass-border: rgba(5, 150, 105, 0.35);
+
+    --status-monitor: #D97706;
+    --status-monitor-bg: rgba(217, 119, 6, 0.10);
+    --status-monitor-border: rgba(217, 119, 6, 0.35);
+
+    --status-reject: #DC2626;
+    --status-reject-bg: rgba(220, 38, 38, 0.10);
+    --status-reject-border: rgba(220, 38, 38, 0.35);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body.industrial-theme {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.text-cyan {
+    color: var(--accent-cyan);
+}
+
+.text-green {
+    color: var(--status-pass);
+}
+
+.text-amber {
+    color: var(--status-monitor);
+}
+
+.text-red {
+    color: var(--status-reject);
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+.hidden {
+    display: none !important;
+}

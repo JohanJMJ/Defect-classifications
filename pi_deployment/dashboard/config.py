@@ -43,7 +43,6 @@ def get_available_models():
     }
 
 def get_system_telemetry():
-    """Returns real-time system stats (CPU, RAM, Temp, Architecture)."""
     if PSUTIL_AVAILABLE:
         cpu_pct = psutil.cpu_percent(interval=None)
         ram = psutil.virtual_memory()
@@ -56,7 +55,6 @@ def get_system_telemetry():
         ram_total_mb = 8192
         ram_pct = 38.1
 
-    # Temperature read (Raspberry Pi thermal zone or fallback)
     temp_c = None
     if os.path.exists("/sys/class/thermal/thermal_zone0/temp"):
         try:
