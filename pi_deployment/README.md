@@ -26,12 +26,11 @@ pi_deployment/
 │   ├── templates/               # Offline HTML templates (base, index, history)
 │   └── static/                  # Responsive CSS, icons, and async JavaScript polling
 ├── models/                      # High-Accuracy Hailo-8 HEF executables (26 TOPS)
-│   ├── steel_defects_hailo8.hef # Steel defect detection (YOLO11m, 6 classes, 29.9 MB)
-│   ├── bottle_hailo8.hef        # Bottle defect segmentation (21.7 MB)
-│   ├── grid_hailo8.hef          # Grid defect segmentation (21.4 MB)
-│   ├── tile_hailo8.hef          # Tile defect segmentation (21.6 MB)
-│   ├── models.yaml              # Models registry & specifications
-│   └── metadata.yaml            # Base model metadata & segmentation classes
+│   ├── steel_defects_hailo8.hef # Steel defect detection (YOLO11m, 6 classes, 21.0 MB)
+│   ├── bottle_hailo8.hef        # Bottle defect segmentation (3 classes, 23.0 MB)
+│   ├── grid_hailo8.hef          # Grid defect segmentation (5 classes, 23.8 MB)
+│   ├── tile_hailo8.hef          # Tile defect segmentation (5 classes, 22.5 MB)
+│   └── models.yaml              # Models registry & specifications
 ├── sample_images/               # Categorized test images for each model
 ├── service/                     # Systemd service for auto-start on factory boot
 ├── results/                     # Output folder for annotated images & JSON reports
@@ -69,7 +68,7 @@ chmod +x setup_pi.sh run_inference.sh inference.py evaluate_hef.py run_eval.sh
 ### Step 3: Run Defect Inspection!
 
 ```bash
-# List all 9 available models
+# List all installed models
 ./run_inference.sh --list-models
 
 # Run defect inspection on default model (tile):

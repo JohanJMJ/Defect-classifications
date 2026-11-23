@@ -22,7 +22,7 @@ fi
 # 3. Fast-Path: Pre-stage ExecuTorch Llama model to /dev/shm (RAM disk) for zero cold load
 if [ -d "/dev/shm" ]; then
     mkdir -p /dev/shm/executorch
-    for candidate_dir in ~/executorch-deployment /home/raspberrypi5/executorch-deployment ~/Desktop/executorch-deployment ~/Desktop/executorch-1b ~/executorch-1b; do
+    for candidate_dir in /home/raspberrypi5/executorch-new ~/executorch-new ~/executorch-deployment /home/raspberrypi5/executorch-deployment ~/Desktop/executorch-deployment ~/Desktop/executorch-1b ~/executorch-1b; do
         if [ -d "$candidate_dir" ]; then
             PTE_FILE=$(find "$candidate_dir" -maxdepth 1 -name "*.pte" 2>/dev/null | head -n 1)
             if [ -n "$PTE_FILE" ]; then

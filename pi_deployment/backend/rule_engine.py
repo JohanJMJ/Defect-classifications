@@ -1,110 +1,79 @@
 """
-Neuro-Fuzzy Industrial Quality Triage Engine (< 0.05 ms latency)
-Performs continuous microsecond fuzzy risk assessment and gating for LLaMA 3.2 1B.
-Tiers: None, Minor, Moderate, Major, Critical
-Verdicts: PASS, DIVERT, INSPECT, REJECT
+Neuro-Fuzzy Triage and Rule Engine for Industrial Defect Classification.
+Acts as the single source of truth for Severity and Verdict.
+Evaluates defect detections using Fuzzy Logic risk assessment.
 """
 
-# Defect class inherent hazard weights (0.0 to 1.0)
-HAZARD_WEIGHTS = {
-    # Structural / Fatal Flaws (0.85 - 1.0)
-    "crack": 1.0,
-    "tile_crack": 1.0,
-    "fracture": 1.0,
-    "broken": 1.0,
-    "broken_large": 1.0,
-    "broken_small": 1.0,
-    "bottle_broken_large": 1.0,
-    "bottle_broken_small": 1.0,
-    "grid_broken": 1.0,
-    "hole": 0.95,
-    "wood_hole": 0.95,
-    "cut": 0.90,
-    "leather_cut": 0.90,
+# Defect criticalities across supported domains (0.0 to 1.0)
+DEFECT_SEVERITY_WEIGHTS = {
+    # Steel defects (NEU-DET)
     "crazing": 0.85,
-    "inclusion": 0.80,
-    "pitted_surface": 0.80,
-    "damaged_case": 0.75,
-    # Process / Surface Flaws (0.50 - 0.70)
-    "contamination": 0.70,
-    "bottle_contamination": 0.70,
-    "bent": 0.65,
-    "grid_bent": 0.65,
-    "metal_nut_bent": 0.65,
-    "transistor_bent_lead": 0.65,
-    "oil": 0.60,
-    "tile_oil": 0.60,
-    "patches": 0.55,
-    "rolled-in_scale": 0.55,
-    "glue": 0.55,
-    "tile_glue_strip": 0.55,
-    "grid_glue": 0.55,
-    "leather_glue": 0.55,
-    # Cosmetic / Surface Marks (0.20 - 0.35)
-    "scratches": 0.35,
-    "wood_scratch": 0.35,
-    "metal_nut_scratch": 0.35,
-    "screw_scratch_neck": 0.35,
+    "inclusion": 0.70,
+    "patches": 0.50,
+    "pitted_surface": 0.60,
+    "rolled-in_scale": 0.75,
+    "scratches": 0.40,
+    # Bottle defects (MVTec)
+    "broken_large": 0.95,
+    "broken_small": 0.75,
+    "contamination": 0.55,
+    # Grid defects (MVTec)
+    "bent": 0.45,
+    "broken": 0.90,
+    "glue": 0.50,
+    "metal_contamination": 0.65,
     "thread": 0.35,
-    "screw_thread_side": 0.35,
-    "color": 0.30,
-    "metal_nut_color": 0.30,
-    "poke": 0.30,
-    "leather_poke": 0.30,
+    # Tile defects (MVTec)
+    "crack": 0.90,
+    "glue_strip": 0.50,
+    "gray_stroke": 0.40,
+    "oil": 0.60,
+    "rough": 0.45,
 }
-
-
-def get_hazard_weight(label: str) -> float:
-    """Returns inherent risk weight for a defect label."""
-    if not label:
-        return 0.50
-    lbl = str(label).lower().strip()
-    if lbl in HAZARD_WEIGHTS:
-        return HAZARD_WEIGHTS[lbl]
-    # Substring matching for composite labels
-    for key, weight in HAZARD_WEIGHTS.items():
-        if key in lbl:
-            return weight
-    return 0.50
 
 
 def calculate_fuzzy_risk(total_mask_pct: float, max_conf: float, detections: list) -> float:
     """
-    Computes continuous Fuzzy Risk Score (0.0 to 100.0) in < 0.02ms.
-    Formula balances:
-      - 55% Defect Area Percentage (non-linear smooth growth)
-      - 25% Defect Inherent Hazard (damped for microscopic areas)
-      - 20% Model Confidence (damped for microscopic areas)
+    Computes a deterministic Neuro-Fuzzy risk score (0 to 100).
+    Combines:
+      - Normalized Defect Area (Sigmoid scaling)
+      - Detection Confidence
+      - Intrinsic Defect Hazard Severity
     """
-    if total_mask_pct <= 0.0 or not detections:
+    if not detections or total_mask_pct <= 0.0:
         return 0.0
 
-    # 1. Non-linear area membership (0.0 to 1.0)
-    mu_area = min(1.0, max(0.0, total_mask_pct / 8.0)) ** 1.2
+    # 1. Defect Area Risk (0 to 40 pts)
+    # Area scaling: 0.1% -> 5 pts, 1.0% -> 20 pts, >5.0% -> 40 pts
+    if total_mask_pct <= 0.2:
+        area_score = (total_mask_pct / 0.2) * 8.0
+    elif total_mask_pct <= 1.0:
+        area_score = 8.0 + ((total_mask_pct - 0.2) / 0.8) * 14.0
+    elif total_mask_pct <= 5.0:
+        area_score = 22.0 + ((total_mask_pct - 1.0) / 4.0) * 14.0
+    else:
+        area_score = 36.0 + min(4.0, (total_mask_pct - 5.0) * 0.4)
 
-    # 2. Confidence membership (0.0 to 1.0)
-    mu_conf = min(1.0, max(0.0, (max_conf - 0.25) / 0.75))
+    # 2. Confidence Factor (0 to 25 pts)
+    conf_score = max(0.0, min(25.0, (max_conf - 0.2) / 0.7 * 25.0))
 
-    # 3. Maximum hazard weight among detected labels
-    hazard = max((get_hazard_weight(d.get("label", "")) for d in detections), default=0.50)
+    # 3. Defect Hazard Weight (0 to 35 pts)
+    max_hazard = 0.40
+    for d in detections:
+        lbl = d.get("label", "").lower()
+        hazard = DEFECT_SEVERITY_WEIGHTS.get(lbl, 0.50)
+        if hazard > max_hazard:
+            max_hazard = hazard
+    hazard_score = max_hazard * 35.0
 
-    # 4. Area dampening factor (prevents tiny < 1.0% flaws from shooting into Major/Critical)
-    area_factor = min(1.0, max(0.15, total_mask_pct / 2.0))
-
-    # 5. Weighted Fuzzy Risk Score (0 to 100)
-    raw_risk = (
-        (mu_area * 55.0) +
-        (hazard * 25.0 * area_factor) +
-        (mu_conf * 20.0 * area_factor) +
-        5.0  # Base detection presence offset
-    )
-
-    return round(min(100.0, max(0.0, raw_risk)), 1)
+    total_fuzzy = min(100.0, max(0.0, area_score + conf_score + hazard_score))
+    return round(total_fuzzy, 1)
 
 
-def evaluate_rules(detections, image_shape, category="general"):
+def evaluate_rules(detections=None, image_shape=(640, 640), category="tile", **kwargs) -> dict:
     """
-    Evaluates rule-based and fuzzy verdict for detected anomalies.
+    Evaluates rule-based and fuzzy verdict for detected anomalies into standardized 4-tier severity.
+    Accepts either (detections, image_shape, category=category) or (category, detections, image_shape).
 
     Tiers:
       - None     (Score = 0.0)   -> PASS    | No LLaMA     | No Banner
@@ -117,6 +86,21 @@ def evaluate_rules(detections, image_shape, category="general"):
         dict: verdict, severity, fuzzy_score, run_llama, trigger_banner,
               max_confidence, total_mask_pct, rule_action
     """
+    if isinstance(detections, str):
+        # Called as evaluate_rules(category, detections, image_shape)
+        cat_arg = detections
+        det_arg = image_shape if isinstance(image_shape, list) else []
+        shape_arg = category if isinstance(category, tuple) else (640, 640)
+        category = cat_arg
+        detections = det_arg
+        image_shape = shape_arg
+
+    if "category" in kwargs:
+        category = kwargs["category"]
+
+    if detections is None:
+        detections = []
+
     if not detections:
         return {
             "verdict": "PASS",
@@ -139,7 +123,8 @@ def evaluate_rules(detections, image_shape, category="general"):
     # Compute Fuzzy Risk Score
     fuzzy_score = calculate_fuzzy_risk(total_mask_pct, max_conf, detections)
 
-    cat_lower = category.lower()
+    cat_lower = str(category).lower()
+    primary_defect = detections[0].get("label", "").lower() if detections else ""
 
     # Tier 1: Minor Defect (Score < 25.0) -> PASS with fast-path rule (NO LLaMA!)
     if fuzzy_score < 25.0:
@@ -159,13 +144,18 @@ def evaluate_rules(detections, image_shape, category="general"):
         run_llama = True
         trigger_banner = False
         if "steel" in cat_lower:
-            action = f"Moderate surface irregularity ({total_mask_pct:.1f}% area). Divert coil/sheet to secondary finishing track."
+            action = f"Moderate surface irregularity ({primary_defect}, {total_mask_pct:.1f}% area). Divert coil/sheet to secondary finishing track."
         elif "bottle" in cat_lower:
             action = f"Moderate surface scuff or cosmetic variance ({total_mask_pct:.1f}%). Divert bottle to wash/re-inspection lane."
         elif "grid" in cat_lower:
             action = f"Moderate mesh strut deviation ({total_mask_pct:.1f}%). Divert grid to alignment fixture."
         elif "tile" in cat_lower:
-            action = f"Moderate glaze or surface variation ({total_mask_pct:.1f}%). Divert tile to secondary grading sorter."
+            if "oil" in primary_defect:
+                action = f"Moderate oil residue ({total_mask_pct:.1f}%). Divert tile to degreasing wipe station."
+            elif "glue" in primary_defect:
+                action = f"Moderate glue smudge ({total_mask_pct:.1f}%). Divert tile to surface cleanup buffer."
+            else:
+                action = f"Moderate glaze or surface variation ({total_mask_pct:.1f}%). Divert tile to secondary grading sorter."
         else:
             action = f"Moderate anomaly detected ({total_mask_pct:.1f}% area). Divert part from main conveyor to buffer/rework lane."
 
@@ -176,13 +166,23 @@ def evaluate_rules(detections, image_shape, category="general"):
         run_llama = True
         trigger_banner = False
         if "steel" in cat_lower:
-            action = f"Major surface flaw ({total_mask_pct:.1f}% area). Route coil to quality gate for manual inspector sign-off."
+            action = f"Major surface flaw ({primary_defect}, {total_mask_pct:.1f}% area). Route coil to quality gate for manual inspector sign-off."
         elif "bottle" in cat_lower:
-            action = f"Major containment wall anomaly ({total_mask_pct:.1f}%). Hold bottle at optical inspection gate."
+            if "contam" in primary_defect:
+                action = f"Major particulate contamination ({total_mask_pct:.1f}%). Hold bottle at optical inspection gate for wash re-cycle."
+            else:
+                action = f"Major containment wall anomaly ({total_mask_pct:.1f}%). Hold bottle at optical inspection gate."
         elif "grid" in cat_lower:
             action = f"Major strut fracture/bend ({total_mask_pct:.1f}%). Route grid to manual inspection station."
         elif "tile" in cat_lower:
-            action = f"Major structural crack ({total_mask_pct:.1f}%). Hold tile at inspection station; check press die calibration."
+            if "oil" in primary_defect:
+                action = f"Major oil splatter ({total_mask_pct:.1f}%). Hold tile for solvent wash; check conveyor chain lubrication."
+            elif "glue" in primary_defect:
+                action = f"Major glue streak ({total_mask_pct:.1f}%). Hold tile for manual cleanup; service adhesive nozzle."
+            elif "crack" in primary_defect:
+                action = f"Major structural crack ({total_mask_pct:.1f}%). Hold tile at inspection station; check press die calibration."
+            else:
+                action = f"Major tile anomaly ({total_mask_pct:.1f}%). Hold tile at inspection station."
         else:
             action = f"Major defect detected ({total_mask_pct:.1f}% area). Hold component for secondary manual inspection."
 
@@ -193,13 +193,26 @@ def evaluate_rules(detections, image_shape, category="general"):
         run_llama = True
         trigger_banner = True
         if "steel" in cat_lower:
-            action = f"Critical steel defect ({total_mask_pct:.1f}% area, fuzzy risk {fuzzy_score:.0f}/100). Auto-reject sheet and quarantine coil."
+            action = f"Critical steel defect ({primary_defect}, {total_mask_pct:.1f}% area, fuzzy risk {fuzzy_score:.0f}/100). Auto-reject sheet and quarantine coil."
         elif "bottle" in cat_lower:
-            action = f"Critical structural fracture/rupture ({total_mask_pct:.1f}%). Auto-reject bottle to scrap bin immediately."
+            if "contam" in primary_defect:
+                action = f"Critical internal contamination ({total_mask_pct:.1f}%). Auto-reject bottle; inspect wash station rinse nozzles."
+            else:
+                action = f"Critical structural fracture/rupture ({total_mask_pct:.1f}%). Auto-reject bottle to scrap bin immediately."
         elif "grid" in cat_lower:
-            action = f"Critical mesh structural fracture ({total_mask_pct:.1f}%). Auto-reject grid; inspect stamping die."
+            if "glue" in primary_defect or "metal" in primary_defect:
+                action = f"Critical foreign material contamination ({total_mask_pct:.1f}%). Auto-reject grid; inspect feeder and cleaning station."
+            else:
+                action = f"Critical mesh structural fracture ({total_mask_pct:.1f}%). Auto-reject grid; inspect stamping die."
         elif "tile" in cat_lower:
-            action = f"Critical tile fracture ({total_mask_pct:.1f}%). Eject tile to scrap bin and check press balance."
+            if "oil" in primary_defect:
+                action = f"Critical oil contamination ({total_mask_pct:.1f}%). Eject tile to wash bay and inspect hydraulic line seals."
+            elif "glue" in primary_defect:
+                action = f"Critical adhesive deposit ({total_mask_pct:.1f}%). Eject tile to scrap bin and check glue applicator shutoff."
+            elif "crack" in primary_defect:
+                action = f"Critical tile fracture ({total_mask_pct:.1f}%). Eject tile to scrap bin and check press balance."
+            else:
+                action = f"Critical tile defect ({total_mask_pct:.1f}%). Eject tile to scrap bin and inspect kiln conveyor."
         else:
             action = f"Critical defect detected ({total_mask_pct:.1f}% area). Auto-reject component immediately to scrap bin."
 
