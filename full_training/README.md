@@ -1,8 +1,8 @@
 # Production Model Weights and Benchmark Specifications
 
-This directory stores the production-grade PyTorch (`.pt`) model weights and intermediate ONNX representations for all four industrial quality inspection domains: Ceramic Tile, Glass Bottle Packaging, Wire Mesh Grid, and Hot-Rolled Steel Strip.
+This directory stores the production-grade PyTorch (`.pt`) model weights for all four industrial quality inspection domains: Ceramic Tile, Glass Bottle Packaging, Wire Mesh Grid, and Hot-Rolled Steel Strip.
 
-All four production models achieve **over 90% mAP@0.5**, verified on curated, physically aligned, and sanitized test datasets. These models act as the floating-point (FP32/FP16) source of truth prior to INT8 quantization and compilation into Hailo Executable Format (HEF) binaries for the Hailo-8 AI HAT+ (26 TOPS).
+All four production models achieve **over 90% mAP@0.5**, verified on curated, physically aligned, and sanitized test datasets. These models act as the floating-point (FP32/FP16) source of truth prior to INT8 quantization and compilation into Hailo Executable Format (HEF) binaries for the Hailo-8 AI HAT+ (26 TOPS). Note that the production edge appliance executes the compiled `.hef` binaries directly via the HailoRT NPU runtime (and native PyTorch `.pt` for local GPU/CPU evaluation); ONNX is not used for inference.
 
 ---
 
@@ -85,19 +85,21 @@ Standard off-the-shelf public datasets (raw MVTec AD and raw NEU-DET) contain se
 
 ## 4. Hardware Deployment Compilation Workflow
 
-The `.pt` checkpoints in this folder compile directly into Hailo-8 HEF binaries for edge acceleration:
+The production edge system on the Raspberry Pi 5 does not use ONNX Runtime. Instead, the Hailo-8 M.2 AI HAT+ (26 TOPS) executes compiled native **Hailo Executable Format (`.hef`)** binaries directly via the PCIe HailoRT driver, offloading all convolutions, activations, and NMS processing completely from the host CPU.
+
+The `.pt` checkpoints in this folder compile into Hailo-8 HEF binaries through the Hailo Dataflow Compiler (DFC):
 
 ```text
-Production Weights (.pt)
+Production PyTorch Weights (.pt)
   │
   ▼
-Static ONNX Export (opset=17, 640x640)
+Hailo Dataflow Compiler (DFC) Parsing & Calibration
   │
   ▼
-Hailo Dataflow Compiler (DFC) INT8 Calibration
+INT8 Post-Training Quantization (PTQ)
   │
   ▼
-Compiled Binary (.hef) in pi_deployment/models/
+Compiled Hailo Executable Format (.hef) in pi_deployment/models/
   │
   ▼
 Hailo-8 M.2 AI HAT+ (26 TOPS, 23.5 - 25.9 ms Latency on Raspberry Pi 5)
