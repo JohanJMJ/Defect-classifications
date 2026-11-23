@@ -1,9 +1,3 @@
-"""
-Llama AI Advisory Engine for Industrial QC
-Provides intelligent defect severity assessment and actionable recommendations.
-Powered by Meta ExecuTorch (ARM64 CPU with Arm KleidiAI / XNNPACK) & PC Simulation Mode.
-"""
-
 import json
 import os
 from pathlib import Path
@@ -11,13 +5,7 @@ import shutil
 import subprocess
 import time
 
-
 def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
-    """
-    Mirrors a model or tokenizer file to Linux /dev/shm (POSIX RAM disk).
-    Returns (effective_path, is_in_ram).
-    If /dev/shm is unavailable, not writable, or has insufficient free memory, returns (src_path, False).
-    """
     if not src_path:
         return src_path, False
     src_path = Path(src_path)
@@ -49,11 +37,11 @@ def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
             )
             return src_path, False
 
-        print(f"[RAM Disk] ⚡ Loading {src_path.name} ({src_size / (1024*1024):.1f} MB) into RAM disk (/dev/shm)...")
+        print(f"[RAM Disk] Loading {src_path.name} ({src_size / (1024*1024):.1f} MB) into RAM disk (/dev/shm)...")
         t0 = time.perf_counter()
         shutil.copy2(str(src_path), str(dest_path))
         dt = (time.perf_counter() - t0) * 1000.0
-        print(f"[RAM Disk] ✅ Successfully staged in RAM in {dt:.1f}ms! Direct DDR4/DDR5 execution enabled.")
+        print(f"[RAM Disk] Successfully staged in RAM in {dt:.1f}ms Direct DDR4/DDR5 execution enabled.")
         return dest_path, True
 
     except Exception as e:
@@ -62,56 +50,32 @@ def mirror_to_ram_disk(src_path: Path, subfolder="executorch") -> tuple:
 
 
 def auto_discover_llama():
-    """Searches common paths for ExecuTorch runner, .pte model, and tokenizer, prioritizing 1B models for edge speed."""
     possible_dirs = [
         Path("/home/raspberrypi5/executorch-new"),
         Path.home() / "executorch-new",
         Path(__file__).resolve().parent.parent,
         Path.cwd(),
-        Path.home() / "Desktop" / "pi_deployment_new",
-        Path.home() / "executorch-deployment",
-        Path("/home/raspberrypi5/executorch-deployment"),
-        Path.home() / "Desktop" / "executorch-deployment",
-        Path.home() / "Desktop" / "executorch-1b",
-        Path.home() / "executorch-1b",
-        Path.home() / "Desktop" / "executorch",
-        Path.home() / "executorch",
-        Path.home() / "Desktop" / "executorch-3b",
-        Path.home() / "executorch-3b",
-        Path("/home/raspberrypi5/Desktop/executorch-3b"),
     ]
-
     for d in possible_dirs:
         try:
             if d.is_dir():
                 runner = d / "llama_main"
                 pte_files = list(d.glob("*.pte"))
                 tok_files = list(d.glob("*tokenizer*"))
-
                 if runner.is_file() and pte_files and tok_files:
-                    # Prioritize custom fine-tuned model_int4.pte, then model.pte, then other 1b models
+                    # Pick the .pte model
                     int4_pte = [p for p in pte_files if p.name == "model_int4.pte"]
-                    fp16_pte = [p for p in pte_files if p.name == "model.pte"]
-                    models_1b = [p for p in pte_files if "1b" in p.name.lower()]
-                    chosen_model = int4_pte[0] if int4_pte else (fp16_pte[0] if fp16_pte else (models_1b[0] if models_1b else pte_files[0]))
-
-                    # Prefer tokenizer.json for HuggingFace tokenizer runner, else .model/.bin
+                    chosen_model = int4_pte[0] if int4_pte else pte_files[0]
+                    # Pick the tokenizer 
                     json_toks = [t for t in tok_files if t.name.endswith(".json")]
-                    model_toks = [t for t in tok_files if t.name.endswith(".model") or t.name.endswith(".bin")]
-                    chosen_tok = json_toks[0] if json_toks else (model_toks[0] if model_toks else tok_files[0])
-
+                    chosen_tok = json_toks[0] if json_toks else tok_files[0]
                     return runner, chosen_model, chosen_tok
-                elif runner.is_file():
-                    model = pte_files[0] if pte_files else (d / "model.pte")
-                    tok = tok_files[0] if tok_files else (d / "tokenizer.json")
-                    return runner, model, tok
         except Exception:
             continue
-
     return None, None, None
 
 
-# Domain-Specific Industrial Failure Modes & CAPA Knowledge Base (Active Models)
+# Knowledge base
 INDUSTRIAL_KB = {
     "steel_defects": {
         "material": "Hot/Cold-Rolled Carbon Steel Sheet & Strip",
@@ -197,13 +161,12 @@ class LlamaAdvisoryEngine:
                 self.tokenizer_path = ram_tok
 
             if self.is_ram_disk and self.backend == "executorch":
-                print(f"[LlamaAdvisoryEngine] 🚀 ExecuTorch active from RAM disk (/dev/shm): {self.model_path.name}")
+                print(f"[LlamaAdvisoryEngine] ExecuTorch active from RAM disk (/dev/shm): {self.model_path.name}")
             elif self.backend == "executorch":
                 print(f"[LlamaAdvisoryEngine] ExecuTorch active from Disk: {self.model_path}")
 
         print(f"[LlamaAdvisoryEngine] Active advisory backend: {self.backend} (RAM Resident: {self.is_ram_disk})")
 
-    # Category-specific 1-shot examples: (assessment sentence, action sentence)
     # Each anchors the model's vocabulary to the right industrial domain.
     _CATEGORY_EXAMPLES = {
         "steel_defects": ("Rolled-in scale induces fracture propagation during deep drawing stamping.",
@@ -219,18 +182,6 @@ class LlamaAdvisoryEngine:
     }
 
     def build_compact_prompt(self, category, detections, image_shape, rule_eval):
-        """
-        Builds the exact prompt template matching our Unsloth QLoRA fine-tuning dataset.
-        Format:
-          <|begin_of_text|><|start_header_id|>system<|end_header_id|>
-          You are an expert Industrial Quality Control (QC) Engineer.
-          - Severity level (CRITICAL, MAJOR, MODERATE, MINOR)
-          - Technical root cause engineering assessment
-          - Immediate manufacturing corrective action<|eot_id|>
-          <|start_header_id|>user<|end_header_id|>
-          Part: {CATEGORY} ({SPEC}). Defect: {LABEL} (area: {AREA}%, confidence: {CONF}%). Preliminary Rule Verdict: {VERDICT}.<|eot_id|>
-          <|start_header_id|>assistant<|end_header_id|>
-        """
         cat_key = category.lower()
         kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["steel_defects"])
 
@@ -275,12 +226,11 @@ class LlamaAdvisoryEngine:
             latency = (time.perf_counter() - t0) * 1000.0
             return advisory, round(latency, 2)
 
-        # Simulation Mode (PC development & testing)
+        # For the simulation Mode
         advisory, latency = self._generate_simulation(category, detections, image_shape, rule_eval)
         return advisory, latency
 
     def _generate_simulation(self, category, detections, image_shape, rule_eval):
-        """Intelligent contextual simulation for PC testing."""
         severity = rule_eval.get("severity", "MEDIUM")
         verdict = rule_eval.get("verdict", "FLAGGED_MONITOR")
         pct = rule_eval.get("total_mask_pct", 1.5)
@@ -348,7 +298,6 @@ class LlamaAdvisoryEngine:
 
             out = res.stdout
 
-            # Extract PyTorchObserver telemetry and strip from user-facing text
             if "PyTorchObserver" in out:
                 parts = out.split("PyTorchObserver", 1)
                 out = parts[0]
@@ -367,14 +316,13 @@ class LlamaAdvisoryEngine:
             elif prompt in out:
                 out = out.replace(prompt, "")
 
-            # Strip anything after end-of-text / end-of-turn tokens
+            # Strip anything after end of text
             for end_tok in ["<|eot_id|>", "<|end_of_text|>", "<|start_header_id|>"]:
                 if end_tok in out:
                     out = out.split(end_tok)[0]
 
             out = out.strip()
 
-            # Enforce single source of truth: Severity always strictly matches Neuro-Fuzzy triage
             severity_upper = str(rule_eval.get("severity", "CRITICAL")).upper()
             cat_key = category.lower()
             kb = INDUSTRIAL_KB.get(cat_key, INDUSTRIAL_KB["steel_defects"])
@@ -389,7 +337,7 @@ class LlamaAdvisoryEngine:
                 rest = lines[1] if len(lines) > 1 else ""
                 out = f"- Severity: {severity_upper}\n{rest}"
 
-            # Safety guarantee: If output was truncated before writing Action, append verified tooling CAPA
+            # If the llama gets cutoff or forgets the action in between, it appends a pre-verified correcive action from the rule engine or knowledge base
             fallback_act = rule_eval.get("rule_action", kb["tooling_capa"])
             has_action = any(tag in out for tag in ["- Action:", "• Action:", "Action:", "- Immediate Action:"])
             if not has_action:

@@ -1,29 +1,22 @@
-"""
-Neuro-Fuzzy Triage and Rule Engine for Industrial Defect Classification.
-Acts as the single source of truth for Severity and Verdict.
-Evaluates defect detections using Fuzzy Logic risk assessment.
-"""
-
-# Defect criticalities across supported domains (0.0 to 1.0)
 DEFECT_SEVERITY_WEIGHTS = {
-    # Steel defects (NEU-DET)
+    # Steel defects
     "crazing": 0.85,
     "inclusion": 0.70,
     "patches": 0.50,
     "pitted_surface": 0.60,
     "rolled-in_scale": 0.75,
     "scratches": 0.40,
-    # Bottle defects (MVTec)
+    # Bottle defects
     "broken_large": 0.95,
     "broken_small": 0.75,
     "contamination": 0.55,
-    # Grid defects (MVTec)
+    # Grid defects
     "bent": 0.45,
     "broken": 0.90,
     "glue": 0.50,
     "metal_contamination": 0.65,
     "thread": 0.35,
-    # Tile defects (MVTec)
+    # Tile defects
     "crack": 0.90,
     "glue_strip": 0.50,
     "gray_stroke": 0.40,
@@ -31,15 +24,8 @@ DEFECT_SEVERITY_WEIGHTS = {
     "rough": 0.45,
 }
 
-
 def calculate_fuzzy_risk(total_mask_pct: float, max_conf: float, detections: list) -> float:
-    """
-    Computes a deterministic Neuro-Fuzzy risk score (0 to 100).
-    Combines:
-      - Normalized Defect Area (Sigmoid scaling)
-      - Detection Confidence
-      - Intrinsic Defect Hazard Severity
-    """
+    # Computes the Fuzzy risk score (0 to 100).
     if not detections or total_mask_pct <= 0.0:
         return 0.0
 
@@ -71,23 +57,7 @@ def calculate_fuzzy_risk(total_mask_pct: float, max_conf: float, detections: lis
 
 
 def evaluate_rules(detections=None, image_shape=(640, 640), category="tile", **kwargs) -> dict:
-    """
-    Evaluates rule-based and fuzzy verdict for detected anomalies into standardized 4-tier severity.
-    Accepts either (detections, image_shape, category=category) or (category, detections, image_shape).
-
-    Tiers:
-      - None     (Score = 0.0)   -> PASS    | No LLaMA     | No Banner
-      - Minor    (Score < 25.0)  -> PASS    | Fast Rule    | No Banner
-      - Moderate (Score < 55.0)  -> DIVERT  | Runs LLaMA   | No Banner
-      - Major    (Score < 80.0)  -> INSPECT | Runs LLaMA   | No Banner
-      - Critical (Score >= 80.0) -> REJECT  | Runs LLaMA   | SHOWS BANNER & SIREN
-
-    Returns:
-        dict: verdict, severity, fuzzy_score, run_llama, trigger_banner,
-              max_confidence, total_mask_pct, rule_action
-    """
     if isinstance(detections, str):
-        # Called as evaluate_rules(category, detections, image_shape)
         cat_arg = detections
         det_arg = image_shape if isinstance(image_shape, list) else []
         shape_arg = category if isinstance(category, tuple) else (640, 640)
@@ -120,13 +90,12 @@ def evaluate_rules(detections=None, image_shape=(640, 640), category="tile", **k
     total_mask_pct = (total_mask_px / total_px) * 100.0
     max_conf = max(d.get("confidence", 0.0) for d in detections)
 
-    # Compute Fuzzy Risk Score
     fuzzy_score = calculate_fuzzy_risk(total_mask_pct, max_conf, detections)
 
     cat_lower = str(category).lower()
     primary_defect = detections[0].get("label", "").lower() if detections else ""
 
-    # Tier 1: Minor Defect (Score < 25.0) -> PASS with fast-path rule (NO LLaMA!)
+    # Minor Defect (Score < 25.0) - PASS with fast-path rule (NO LLaMA)
     if fuzzy_score < 25.0:
         severity = "Minor"
         verdict = "PASS"
@@ -137,7 +106,7 @@ def evaluate_rules(detections=None, image_shape=(640, 640), category="tile", **k
             f"Within allowable visual tolerance; pass to next station without line delay."
         )
 
-    # Tier 2: Moderate Defect (Score 25.0 - 54.9) -> DIVERT (Runs LLaMA)
+    # Moderate Defect (Score 25.0 - 54.9) - DIVERT (Runs LLaMA)
     elif fuzzy_score < 55.0:
         severity = "Moderate"
         verdict = "DIVERT"
@@ -159,7 +128,7 @@ def evaluate_rules(detections=None, image_shape=(640, 640), category="tile", **k
         else:
             action = f"Moderate anomaly detected ({total_mask_pct:.1f}% area). Divert part from main conveyor to buffer/rework lane."
 
-    # Tier 3: Major Defect (Score 55.0 - 79.9) -> INSPECT (Runs LLaMA, No Alarm Banner)
+    # Major Defect (Score 55.0 - 79.9) - INSPECT (Runs LLaMA)
     elif fuzzy_score < 80.0:
         severity = "Major"
         verdict = "INSPECT"
@@ -186,7 +155,7 @@ def evaluate_rules(detections=None, image_shape=(640, 640), category="tile", **k
         else:
             action = f"Major defect detected ({total_mask_pct:.1f}% area). Hold component for secondary manual inspection."
 
-    # Tier 4: Critical Defect (Score >= 80.0) -> REJECT (Runs LLaMA, Shows Banner & Siren)
+    # Critical Defect (Score >= 80.0) -> REJECT (Runs LLaMA, Shows Banner & Siren)
     else:
         severity = "Critical"
         verdict = "REJECT"

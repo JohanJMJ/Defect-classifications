@@ -1,9 +1,3 @@
-"""
-Alert and Notification Subsystem
-Supports Physical GPIO alerts (LEDs, Buzzer) on Raspberry Pi 5
-with safe fallback for PC simulation and MQTT/Telegram stubs.
-"""
-
 import threading
 import time
 
@@ -14,7 +8,7 @@ except (ImportError, RuntimeError):
     GPIO_AVAILABLE = False
 
 
-# Default GPIO Pins (BCM numbering)
+# GPIO Pins (BCM numbering) - Extra feature (LED's and Buzzer is not connected)
 PIN_GREEN_LED = 17   # PASS
 PIN_YELLOW_LED = 27  # MONITOR
 PIN_RED_LED = 22     # REJECT
@@ -46,9 +40,6 @@ class AlertManager:
             print("[AlertManager] Running with Simulated Alerts (No physical GPIO).")
 
     def trigger_inspection_alert(self, verdict, severity="LOW"):
-        """
-        Activates appropriate visual/audible alert based on verdict.
-        """
         self.last_alert = {
             "verdict": verdict,
             "severity": severity,
