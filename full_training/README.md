@@ -8,8 +8,6 @@ All four production models achieve **over 90% mAP@0.5**, verified on curated, ph
 
 ## 1. Verified 90%+ Benchmark Summary
 
-![Proposed Model vs Baseline](proposed_model_vs_baseline.png)
-
 | Model Weights File | Domain | Task | Architecture | Parameters | Target Defect Classes | Precision | Recall | F1-Score | **mAP@0.5** | Model Size |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | `tile_production_best.pt` | Tile | Segmentation | YOLO11s-seg | 10.08M | 5 classes | **89.29%** | **94.87%** | **91.99%** | **98.50%** | 20.5 MB |
