@@ -198,11 +198,32 @@ def api_inspect():
     if source_type == "camera":
         image_bgr = camera.capture_snapshot()
         orig_filename = f"camera_{int(time.time())}.jpg"
-        if image_bgr is not None:
-            mean_val = float(image_bgr.mean())
-            print(f"[Inspect] Camera frame captured: shape={image_bgr.shape}, mean_brightness={mean_val:.1f}")
-            if mean_val < 15.0:
-                print(f"[Inspect] WARNING: Camera frame is severely underexposed (brightness={mean_val:.1f})")
+        if image_bgr is None:
+            return jsonify({
+                "success": False,
+                "error": "Camera capture failed: No active camera feed. Ensure webcam is connected and turned ON."
+            }), 400
+
+        mean_val = float(image_bgr.mean())
+        print(f"[Inspect] Camera frame captured: shape={image_bgr.shape}, mean_brightness={mean_val:.1f}")
+        if mean_val < 15.0:
+            print(f"[Inspect] WARNING: Camera frame is severely underexposed (brightness={mean_val:.1f})")
+            return jsonify({
+                "success": False,
+                "error": f"Camera frame is severely underexposed (brightness: {mean_val:.1f}/255). Ensure sufficient lighting or remove lens cap."
+            }), 400
+
+        # Intelligent Center-Square Cropping:
+        # Standard webcams capture at 4:3 (e.g. 640x480) or 16:9.
+        # Defect segmentation models (YOLO) are trained on 1:1 square (640x640).
+        # Center-cropping isolates the component in the center and eliminates 80px gray letterbox padding.
+        h, w = image_bgr.shape[:2]
+        if w > h:
+            offset = (w - h) // 2
+            image_bgr = image_bgr[:, offset:offset + h]
+        elif h > w:
+            offset = (h - w) // 2
+            image_bgr = image_bgr[offset:offset + w, :]
 
     elif source_type == "sample":
         rel_sample = request.form.get("sample_path", "")

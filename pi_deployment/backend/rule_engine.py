@@ -110,7 +110,7 @@ def evaluate_rules(detections, image_shape, category="general"):
       - None     (Score = 0.0)   -> PASS    | No LLaMA     | No Banner
       - Minor    (Score < 25.0)  -> PASS    | Fast Rule    | No Banner
       - Moderate (Score < 55.0)  -> DIVERT  | Runs LLaMA   | No Banner
-      - Major    (Score < 80.0)  -> INSPECT | Runs LLaMA   | SHOWS BANNER
+      - Major    (Score < 80.0)  -> INSPECT | Runs LLaMA   | No Banner
       - Critical (Score >= 80.0) -> REJECT  | Runs LLaMA   | SHOWS BANNER & SIREN
 
     Returns:
@@ -169,12 +169,12 @@ def evaluate_rules(detections, image_shape, category="general"):
         else:
             action = f"Moderate anomaly detected ({total_mask_pct:.1f}% area). Divert part from main conveyor to buffer/rework lane."
 
-    # Tier 3: Major Defect (Score 55.0 - 79.9) -> INSPECT (Runs LLaMA, Shows Banner)
+    # Tier 3: Major Defect (Score 55.0 - 79.9) -> INSPECT (Runs LLaMA, No Alarm Banner)
     elif fuzzy_score < 80.0:
         severity = "Major"
         verdict = "INSPECT"
         run_llama = True
-        trigger_banner = True
+        trigger_banner = False
         if "steel" in cat_lower:
             action = f"Major surface flaw ({total_mask_pct:.1f}% area). Route coil to quality gate for manual inspector sign-off."
         elif "bottle" in cat_lower:

@@ -412,8 +412,13 @@ function selectSample(sampleUrl, category) {
     displayPreview(sampleUrl);
     btnRunInspect.disabled = false;
 
-    // Auto-execute inspection on sample click
-    executeInspection(false, false);
+    // Highlight selected sample card
+    document.querySelectorAll('.sample-card').forEach(card => {
+        card.classList.remove('selected');
+        if (card.querySelector(`img[src="${sampleUrl}"]`)) {
+            card.classList.add('selected');
+        }
+    });
 }
 
 
@@ -670,10 +675,10 @@ function renderInspectionResults(insp) {
     // 5. Flash Hardware GPIO simulation indicator
     flashGpioIndicator(insp.verdict);
 
-    // 6. Emergency Audio-Visual Alarm Banner (Only for Critical and Major!)
+    // 6. Emergency Audio-Visual Alarm Banner (STRICTLY for Critical only!)
     const sName = (insp.severity || '').toLowerCase();
-    const isMajorOrCritical = (sName === 'critical' || sName === 'major' || verd === 'REJECT' || insp.trigger_banner);
-    if (isMajorOrCritical) {
+    const isCritical = (sName === 'critical' || verd === 'REJECT' || (insp.trigger_banner && sName !== 'major'));
+    if (isCritical) {
         triggerSevereDefectAlarm(insp);
     } else {
         silenceSevereDefectAlarm();
@@ -957,15 +962,7 @@ window.testAlert = function(verdict) {
             severity: 'Critical',
             verdict: 'REJECT'
         });
-    } else if (verdict === 'INSPECT') {
-        triggerSevereDefectAlarm({
-            component_id: 'SIMULATED-MAJOR',
-            defect_class: 'Major Crack',
-            mask_area_pct: 6.2,
-            severity: 'Major',
-            verdict: 'INSPECT'
-        });
-    } else if (verdict === 'PASS' || verdict === 'DIVERT') {
+    } else {
         silenceSevereDefectAlarm();
     }
     fetch('/api/alerts/test', {
