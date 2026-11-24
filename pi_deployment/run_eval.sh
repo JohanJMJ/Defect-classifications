@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# One-Click Accuracy & mAP Evaluation for Raspberry Pi AI HAT+ (Hailo-8)
-# Evaluates Box & Mask mAP across the complete validation dataset
-# ZERO PyTorch / ZERO Ultralytics required.
-# ==============================================================================
+# Accuracy & mAP Evaluation for Raspberry Pi AI HAT+ (Hailo-8)
 
 set -e
 

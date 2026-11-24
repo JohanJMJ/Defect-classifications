@@ -1,5 +1,9 @@
 from pathlib import Path
-import yaml
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 try:
     import psutil
     PSUTIL_AVAILABLE = True
@@ -25,8 +29,7 @@ PORT = 5000
 DEBUG = False
 
 def get_available_models():
-    """Reads available HEF models and descriptions from models.yaml."""
-    if MODELS_YAML.is_file():
+    if YAML_AVAILABLE and MODELS_YAML.is_file():
         try:
             with open(MODELS_YAML, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)

@@ -1,14 +1,7 @@
-#!/usr/bin/env python3
-"""
-Launcher script for the Industrial Quality Control Assistant Dashboard.
-Works on PC (Windows/Linux/macOS) in Simulation Mode and Raspberry Pi 5 in Native Mode.
-"""
-
 import sys
 import os
 from pathlib import Path
 
-# Add pi_deployment to path
 CURRENT_DIR = Path(__file__).resolve().parent
 PI_DEPLOYMENT_DIR = CURRENT_DIR / "pi_deployment"
 

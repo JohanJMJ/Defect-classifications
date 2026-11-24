@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# One-Click Dashboard Launcher for Raspberry Pi 5 + Hailo-8 AI HAT+
-# ==============================================================================
+# Dashboard Launcher for Raspberry Pi 5 + Hailo-8 AI HAT+
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,29 +20,31 @@ fi
 # 3. Fast-Path: Pre-stage ExecuTorch Llama model to /dev/shm (RAM disk) for zero cold load
 if [ -d "/dev/shm" ]; then
     mkdir -p /dev/shm/executorch
-    for candidate_dir in /home/raspberrypi5/executorch-new ~/executorch-new ~/executorch-deployment /home/raspberrypi5/executorch-deployment ~/Desktop/executorch-deployment ~/Desktop/executorch-1b ~/executorch-1b; do
-        if [ -d "$candidate_dir" ]; then
-            PTE_FILE=$(find "$candidate_dir" -maxdepth 1 -name "*.pte" 2>/dev/null | head -n 1)
-            if [ -n "$PTE_FILE" ]; then
-                PTE_NAME=$(basename "$PTE_FILE")
-                if [ ! -f "/dev/shm/executorch/${PTE_NAME}" ]; then
-                    echo "⚡ Pre-staging ExecuTorch Llama model (${PTE_NAME}) into RAM disk (/dev/shm)..."
-                    cp "$PTE_FILE" "/dev/shm/executorch/${PTE_NAME}"
-                    echo "✅ ExecuTorch model resident in RAM (/dev/shm/executorch/${PTE_NAME})!"
-                else
-                    echo "⚡ ExecuTorch model already warm in RAM (/dev/shm/executorch/${PTE_NAME})"
-                fi
+    candidate_dir="/home/raspberrypi5/executorch-new"
+    if [ ! -d "$candidate_dir" ]; then
+        candidate_dir="$HOME/executorch-new"
+    fi
+
+    if [ -d "$candidate_dir" ]; then
+        PTE_FILE=$(find "$candidate_dir" -maxdepth 1 -name "*.pte" 2>/dev/null | head -n 1)
+        if [ -n "$PTE_FILE" ]; then
+            PTE_NAME=$(basename "$PTE_FILE")
+            if [ ! -f "/dev/shm/executorch/${PTE_NAME}" ]; then
+                echo "Pre-staging ExecuTorch Llama model (${PTE_NAME}) into RAM disk (/dev/shm)..."
+                cp "$PTE_FILE" "/dev/shm/executorch/${PTE_NAME}"
+                echo "ExecuTorch model resident in RAM (/dev/shm/executorch/${PTE_NAME})!"
+            else
+                echo "ExecuTorch model already warm in RAM (/dev/shm/executorch/${PTE_NAME})"
             fi
-            TOK_FILE=$(find "$candidate_dir" -maxdepth 1 -name "*tokenizer*" 2>/dev/null | head -n 1)
-            if [ -n "$TOK_FILE" ]; then
-                TOK_NAME=$(basename "$TOK_FILE")
-                if [ ! -f "/dev/shm/executorch/${TOK_NAME}" ]; then
-                    cp "$TOK_FILE" "/dev/shm/executorch/${TOK_NAME}"
-                fi
-            fi
-            break
         fi
-    done
+        TOK_FILE=$(find "$candidate_dir" -maxdepth 1 -name "*tokenizer*" 2>/dev/null | head -n 1)
+        if [ -n "$TOK_FILE" ]; then
+            TOK_NAME=$(basename "$TOK_FILE")
+            if [ ! -f "/dev/shm/executorch/${TOK_NAME}" ]; then
+                cp "$TOK_FILE" "/dev/shm/executorch/${TOK_NAME}"
+            fi
+        fi
+    fi
 fi
 
 # 4. Start Dashboard Server
