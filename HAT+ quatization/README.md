@@ -1,6 +1,9 @@
 # Raspberry Pi AI HAT+ (Hailo-8) Quantization & HEF Compiler Guide
 
-This directory contains the complete quantization pipeline and toolchain for compiling PyTorch floating-point defect classification/segmentation models (`full_training/*.pt`) into optimized **Hailo Executable Format (`.hef`)** binaries for deployment on the **Raspberry Pi AI HAT+**.
+This directory contains the quantization pipeline and toolchain for compiling PyTorch floating-point defect classification/segmentation models (`full_training/*.pt`) into optimized **Hailo Executable Format (`.hef`)** binaries for deployment on the **Raspberry Pi AI HAT+**.
+
+> [!NOTE]
+> **Pre-compiled HEF binaries are already included:** The fully optimized, production-grade `.hef` binaries for all 4 industrial categories are maintained in [`pi_deployment/models/`](file:///d:/Defect-classifications/pi_deployment/models/). To conserve repository space and prevent duplicate binary weight (~90 MB), redundant copies in a local `hef_output/` folder have been removed. Calibration image datasets (`hailo_calibration_data/`) are kept locally / uncommitted (via `.gitignore`) because the pre-quantized binaries are already checked into the deployment folder.
 
 ---
 
@@ -99,7 +102,9 @@ Preserves the high-resolution prototype mask channel (`proto`) to enable precise
 ### Step 4: Calibration & INT8 Quantization
 To transform 32-bit floating-point weights into 8-bit fixed-point integers (`INT8`) without sacrificing defect recall:
 
-1. **Calibration Set:** A representative subset (~100 to 300 images per category) containing both defect-free samples and diverse defect classes is drawn from `hailo_calibration_data/<category>/data.yaml`.
+1. **Calibration Set:** A representative subset (~100 to 300 images per category) containing both defect-free samples and diverse defect classes is drawn from a local calibration dataset referenced by a `data.yaml`.
+   > [!TIP]
+   > **Storage Conservation:** Calibration image datasets are kept external/local and are ignored in git (`.gitignore`) to avoid bloating the repository with hundreds of megabytes of redundant raw images. Pre-quantized `.hef` binaries for all categories are already compiled and stored in [`pi_deployment/models/`](file:///d:/Defect-classifications/pi_deployment/models/).
 2. **Dynamic Range Profiling:** The activations of each layer are evaluated to compute optimal scaling factors and zero-points ($S$ and $Z$):
    $$q = \text{round}\left(\frac{x}{S}\right) + Z$$
 3. **Optimization Flavors:**
@@ -113,39 +118,36 @@ The quantized HAR is compiled into hardware binary microcode:
 ```bash
 hailo compiler <quantized_model>.har --hw-arch hailo8
 ```
-The compiler maps layers to the Hailo-8's core clusters, orchestrates on-chip SRAM memory reuse, and outputs the final `.hef` file into [`hef_output/`](file:///d:/Defect-classifications/HAT+%20quatization/hef_output/).
+The compiler maps layers to the Hailo-8's core clusters, orchestrates on-chip SRAM memory reuse, and writes the final `.hef` file directly into [`pi_deployment/models/`](file:///d:/Defect-classifications/pi_deployment/models/).
 
 ---
 
 ## 3. Usage & CLI Commands
 
-### Compiling with the Automated Runner Script
-The recommended entrypoint is [`run_compiler.sh`](file:///d:/Defect-classifications/HAT+%20quatization/run_compiler.sh):
-
-```bash
-# 1. Compile Tile model for 26 TOPS Hailo-8 (default)
-./run_compiler.sh --category tile --arch hailo8
-
-# 2. Compile for 13 TOPS Raspberry Pi AI HAT+ (Hailo-8L)
-./run_compiler.sh --category tile --arch hailo8l
-
-# 3. Fast Post-Training Quantization (~1.5 min)
-./run_compiler.sh --category bottle --arch hailo8 --fast
-
-# 4. Batch compile all 4 production models sequentially
-./run_compiler.sh --all --arch hailo8
-```
-
 ### Compiling Directly via Python
-If working inside the Hailo virtual environment (`hailo_venv`):
+If working inside a Hailo Dataflow Compiler virtual environment (`hailo_venv` on an Ubuntu 22.04 / GLIBC >= 2.34 environment):
 
 ```bash
+# 1. Tile Defect Segmentation (output directly to pi_deployment/models)
 python compile_hef.py \
     --category tile \
     --arch hailo8 \
     --model ../full_training/tile_production_best.pt \
-    --data hailo_calibration_data/tile/data.yaml \
-    --output-dir hef_output
+    --data /path/to/calibration_data/tile/data.yaml
+
+# 2. Steel Defect Detection (using steel_production_best.pt)
+python compile_hef.py \
+    --category steel_defects \
+    --arch hailo8 \
+    --model ../full_training/steel_production_best.pt \
+    --data /path/to/calibration_data/steel/data.yaml
+
+# 3. Fast Post-Training Quantization (~1.5 min)
+python compile_hef.py \
+    --category bottle \
+    --arch hailo8 \
+    --fast \
+    --data /path/to/calibration_data/bottle/data.yaml
 ```
 
 ### CLI Arguments Reference
@@ -154,18 +156,18 @@ python compile_hef.py \
 |---|---|---|---|
 | `-c`, `--category` | String | `tile` | Defect category to compile (`steel_defects`, `bottle`, `grid`, `tile`). |
 | `-a`, `--arch` | Choice | `hailo8` | Target hardware: `hailo8` (26 TOPS) or `hailo8l` (13 TOPS). |
-| `-m`, `--model` | Path | `None` | Custom path to `.pt` weights (defaults to `full_training/<category>_production_best.pt`). |
-| `-d`, `--data` | Path | `None` | Custom path to calibration `data.yaml`. |
+| `-m`, `--model` | Path | `None` | Path to `.pt` weights (defaults to `full_training/<category>_production_best.pt`, or `steel_production_best.pt` for steel). |
+| `-d`, `--data` | Path | `None` | Path to local calibration `data.yaml` (kept external to save repo storage). |
 | `--imgsz` | Integer | `640` | Square input resolution. |
 | `--fast` | Flag | `False` | Enables Fast PTQ (Level 1) instead of full 4-epoch QAT fine-tuning. |
 | `--all` | Flag | `False` | Compiles all 4 active production models sequentially. |
-| `-o`, `--output-dir` | Path | `hef_output` | Output folder for compiled `.hef` binaries. |
+| `-o`, `--output-dir` | Path | `../pi_deployment/models` | Output folder for compiled `.hef` binaries (defaults directly to deployment models directory). |
 
 ---
 
 ## 4. Deployed Binary Mapping
 
-Once compiled, binaries are copied to [`pi_deployment/models/`](file:///d:/Defect-classifications/pi_deployment/models/) for production execution:
+All compiled binaries reside in [`pi_deployment/models/`](file:///d:/Defect-classifications/pi_deployment/models/) ready for production execution on the Raspberry Pi:
 
 | Model | Compiled HEF File | Input Format | NMS Location | Target Hardware |
 |---|---|---|---|---|

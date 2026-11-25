@@ -1,8 +1,3 @@
-/**
- * Industrial Quality Control Assistant - Dashboard Frontend Logic
- * Includes On-Demand Camera Control & Automatic Continuous Capture Engine
- */
-
 let currentSelectedFile = null;
 let currentSamplePath = null;
 let currentInspectionData = null;
@@ -84,7 +79,7 @@ let activeLlamaInspId = null;
 
 const recentTableBody = document.getElementById('recentTableBody');
 
-// Emergency Audio / Visual Alarm Banner Elements
+// Emergency  Alarm Banner Elements
 const emergencyAlarmBanner = document.getElementById('emergencyAlarmBanner');
 const alarmCompId = document.getElementById('alarmCompId');
 const alarmDefectDesc = document.getElementById('alarmDefectDesc');
@@ -92,9 +87,7 @@ const btnAcknowledgeAlarm = document.getElementById('btnAcknowledgeAlarm');
 const btnToggleAlarmSound = document.getElementById('btnToggleAlarmSound');
 const alarmSoundIcon = document.getElementById('alarmSoundIcon');
 
-// ----------------------------------------------------------------------
 // Initialization
-// ----------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
     generateSerialId();
     setupTabs();
@@ -126,7 +119,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Toggle Raw vs Annotated image
     toggleOverlay.addEventListener('change', () => {
         if (!currentInspectionData) return;
         if (toggleOverlay.checked) {
@@ -136,24 +128,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Auto ID button
     btnGenId.addEventListener('click', generateSerialId);
 });
 
-
-// ----------------------------------------------------------------------
 // Serial ID Generator
-// ----------------------------------------------------------------------
+
 function generateSerialId() {
     const cat = modelSelect.value.toUpperCase();
     const rand = Math.floor(100000 + Math.random() * 900000);
     componentIdInput.value = `${cat}-SN-${rand}`;
 }
 
-
-// ----------------------------------------------------------------------
-// Tab Management (Auto-starts/stops camera on tab switch)
-// ----------------------------------------------------------------------
 function setupTabs() {
     const tabButtons = document.querySelectorAll('.tab-btn');
     const tabPanes = document.querySelectorAll('.tab-pane');
@@ -168,19 +153,15 @@ function setupTabs() {
             const targetPane = document.getElementById(target);
             if (targetPane) targetPane.classList.add('active');
 
-            // Handle Camera Lifecycle on Tab Navigation
             if (target === 'tab-camera') {
-                // Switching to camera tab: auto-start camera
                 startCameraStream();
             } else {
-                // Leaving camera tab: stop continuous capture and release camera hardware!
                 if (isContinuousRunning) {
                     stopContinuousCapture();
                 }
                 stopCameraStream();
             }
 
-            // Reset opposing source when switching tabs to avoid confusion
             if (target === 'tab-upload') {
                 currentSamplePath = null;
             } else if (target === 'tab-samples') {
@@ -190,10 +171,6 @@ function setupTabs() {
     });
 }
 
-
-// ----------------------------------------------------------------------
-// On-Demand Camera Lifecycle Controls
-// ----------------------------------------------------------------------
 function setupCameraControls() {
     // Manual Toggle Camera button
     btnToggleCamera.addEventListener('click', () => {
@@ -273,9 +250,7 @@ function stopCameraStream() {
 }
 
 
-// ----------------------------------------------------------------------
 // Continuous Automatic Inspection Engine
-// ----------------------------------------------------------------------
 function startContinuousCapture() {
     if (!isCameraActive) {
         startCameraStream();
@@ -285,7 +260,6 @@ function startContinuousCapture() {
     continuousCycleCount = 0;
     continuousIntervalSeconds = parseInt(continuousIntervalSelect.value, 10) || 2;
 
-    // UI Updates
     btnContinuousText.innerText = 'Stop Continuous Capture';
     btnToggleContinuous.classList.add('btn-continuous-active');
     continuousPulse.classList.remove('hidden');
@@ -357,10 +331,7 @@ function runContinuousLoop() {
     }, continuousIntervalSeconds * 1000);
 }
 
-
-// ----------------------------------------------------------------------
 // Model Selector & Sample Loader
-// ----------------------------------------------------------------------
 function setupModelSelector() {
     modelSelect.addEventListener('change', () => {
         const cat = modelSelect.value;
@@ -412,19 +383,20 @@ function selectSample(sampleUrl, category) {
     displayPreview(sampleUrl);
     btnRunInspect.disabled = false;
 
-    // Auto-execute inspection on sample click
-    executeInspection(false, false);
+    // Highlight selected sample card
+    document.querySelectorAll('.sample-card').forEach(card => {
+        card.classList.remove('selected');
+        if (card.querySelector(`img[src="${sampleUrl}"]`)) {
+            card.classList.add('selected');
+        }
+    });
 }
 
 
 // ----------------------------------------------------------------------
 // File Upload & Drag and Drop
-// ----------------------------------------------------------------------
+
 function setupDropzone() {
-    // dropZone is a <label> wrapping the hidden <input type="file">.
-    // Clicking the label naturally opens the file picker — no extra .click() needed.
-    // We clear fileInput.value on mousedown (BEFORE the dialog opens) so that
-    // selecting the same file a second time still fires the 'change' event.
     dropZone.addEventListener('mousedown', () => { fileInput.value = ''; });
 
     fileInput.addEventListener('change', (e) => {
@@ -491,9 +463,8 @@ function displayPreview(src) {
 }
 
 
-// ----------------------------------------------------------------------
+
 // Inspection Execution Pipeline
-// ----------------------------------------------------------------------
 function executeInspection(isCamera = false, isContinuous = false, onComplete = null) {
     if (isInspectionInProgress && !onComplete) return; // Prevent double-fire
 
@@ -569,10 +540,8 @@ function executeInspection(isCamera = false, isContinuous = false, onComplete = 
     });
 }
 
-
-// ----------------------------------------------------------------------
 // Results Rendering
-// ----------------------------------------------------------------------
+
 function renderInspectionResults(insp) {
     // 1. Update Viewfinder Image (Annotated)
     emptyPrompt.classList.add('hidden');
@@ -670,10 +639,10 @@ function renderInspectionResults(insp) {
     // 5. Flash Hardware GPIO simulation indicator
     flashGpioIndicator(insp.verdict);
 
-    // 6. Emergency Audio-Visual Alarm Banner (Only for Critical and Major!)
+    // 6. Emergency Audio-Visual Alarm Banner (STRICTLY for Critical only!)
     const sName = (insp.severity || '').toLowerCase();
-    const isMajorOrCritical = (sName === 'critical' || sName === 'major' || verd === 'REJECT' || insp.trigger_banner);
-    if (isMajorOrCritical) {
+    const isCritical = (sName === 'critical' || verd === 'REJECT' || (insp.trigger_banner && sName !== 'major'));
+    if (isCritical) {
         triggerSevereDefectAlarm(insp);
     } else {
         silenceSevereDefectAlarm();
@@ -831,9 +800,8 @@ function prependRecentInspection(insp) {
     recentTableBody.innerHTML = html;
 }
 
-// ----------------------------------------------------------------------
 // Audio Alarm & Emergency Banner Subsystem (Web Audio API)
-// ----------------------------------------------------------------------
+
 let audioCtx = null;
 let alarmOscillatorInterval = null;
 let isAlarmActive = false;
@@ -957,15 +925,7 @@ window.testAlert = function(verdict) {
             severity: 'Critical',
             verdict: 'REJECT'
         });
-    } else if (verdict === 'INSPECT') {
-        triggerSevereDefectAlarm({
-            component_id: 'SIMULATED-MAJOR',
-            defect_class: 'Major Crack',
-            mask_area_pct: 6.2,
-            severity: 'Major',
-            verdict: 'INSPECT'
-        });
-    } else if (verdict === 'PASS' || verdict === 'DIVERT') {
+    } else {
         silenceSevereDefectAlarm();
     }
     fetch('/api/alerts/test', {
@@ -975,9 +935,7 @@ window.testAlert = function(verdict) {
     }).catch(() => {});
 };
 
-// ----------------------------------------------------------------------
 // Direct Inspection Audit Detail Modal (Pattern A: In-Modal Diagnostics & History)
-// ----------------------------------------------------------------------
 let currentModalInspection = null;
 let currentModalTab = 'diagnostics';
 

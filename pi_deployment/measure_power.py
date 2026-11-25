@@ -22,13 +22,7 @@ Usage Examples:
   # 2. Benchmark power & energy-per-inspection on a model (50 iterations):
   python3 measure_power.py --benchmark --model tile --iterations 50
 
-  # 3. Benchmark full vision + fuzzy rule evaluation:
-  python3 measure_power.py --benchmark --model bottle --full-pipeline
-
-  # 4. Profile power while executing an external command:
-  python3 measure_power.py --cmd "python3 inference.py --model tile"
-
-  # 5. Log power telemetry to CSV or JSON:
+  # 3. Log power telemetry to CSV or JSON:
   python3 measure_power.py --live --duration 60 --log-csv power_log.csv
 """
 
@@ -47,7 +41,6 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List
 
-# Ensure pi_deployment packages can be imported if called from root or pi_deployment
 CURRENT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "pi_deployment" else CURRENT_DIR
 if str(CURRENT_DIR) not in sys.path:
@@ -61,10 +54,6 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
-
-# ============================================================================
-# Telemetry Data Structures
-# ============================================================================
 
 @dataclass
 class PowerReading:
@@ -82,13 +71,7 @@ class PowerReading:
     pcie_3v3_power_w: Optional[float] = None
 
 
-# ============================================================================
-# Hardware Power Monitor Backend
-# ============================================================================
-
 class PowerSensor:
-    """Multi-backend hardware power and energy telemetry provider."""
-
     def __init__(self, sample_interval: float = 0.5):
         self.sample_interval = sample_interval
         self.vcgencmd_path = shutil.which("vcgencmd")
@@ -271,14 +254,7 @@ class PowerSensor:
             pcie_3v3_power_w=round(pcie_w, 3) if pcie_w is not None else None,
         )
 
-
-# ============================================================================
-# Continuous Background Recorder (Threaded)
-# ============================================================================
-
 class PowerRecorder:
-    """Runs high-frequency sampling in a background thread while work executes."""
-
     def __init__(self, sensor: PowerSensor, interval_sec: float = 0.1):
         self.sensor = sensor
         self.interval_sec = interval_sec
@@ -326,17 +302,12 @@ class PowerRecorder:
             return avg_p * duration_sec
         return 0.0
 
-
-# ============================================================================
-# Mode 1: Live Real-Time Power HUD
-# ============================================================================
-
 def run_live_monitor(sensor: PowerSensor, interval: float = 0.5, duration: Optional[float] = None, csv_path: Optional[str] = None):
     print("\n" + "=" * 70)
-    print("⚡ Real-Time Edge Power & Telemetry Monitor")
-    print(f"   Platform   : {platform.system()} ({platform.machine()})")
-    print(f"   Sensing    : {sensor.sensor_source.upper()}")
-    print(f"   Sample Rate: {1.0 / interval:.1f} Hz ({interval * 1000:.0f} ms)")
+    print("Real-Time Edge Power & Telemetry Monitor")
+    print(f"Platform   : {platform.system()} ({platform.machine()})")
+    print(f"Sensing    : {sensor.sensor_source.upper()}")
+    print(f"Sample Rate: {1.0 / interval:.1f} Hz ({interval * 1000:.0f} ms)")
     if duration:
         print(f"   Duration   : {duration:.1f} seconds")
     print("   Press Ctrl+C to stop and display session summary")
@@ -371,15 +342,12 @@ def run_live_monitor(sensor: PowerSensor, interval: float = 0.5, duration: Optio
             print(row, end="\r" if sys.stdout.isatty() else "\n", flush=True)
             time.sleep(interval)
     except KeyboardInterrupt:
-        print("\n\n⏹ Stopped monitoring by user.")
+        print("\n\nStopped monitoring by user.")
 
     print("\n" + "-" * 75)
     _print_session_summary(samples, csv_path)
 
-
-# ============================================================================
 # Mode 2: Model Inference Energy Benchmark
-# ============================================================================
 
 def run_inference_benchmark(
     category: str,
@@ -389,14 +357,14 @@ def run_inference_benchmark(
     json_path: Optional[str] = None
 ):
     print("\n" + "=" * 72)
-    print("⚡ Industrial Edge AI Power & Energy Profiler")
-    print(f"   Target Model       : {category.upper()}")
-    print(f"   Benchmark Rounds   : {iterations} iterations")
-    print(f"   Pipeline Scope     : {'Vision + Fuzzy Advisory' if full_pipeline else 'Vision Hailo-8 NPU Inference'}")
+    print("Industrial Edge AI Power & Energy Profiler")
+    print(f"Target Model       : {category.upper()}")
+    print(f"Benchmark Rounds   : {iterations} iterations")
+    print(f"Pipeline Scope     : {'Vision + Fuzzy Advisory' if full_pipeline else 'Vision Hailo-8 NPU Inference'}")
     print("=" * 72)
 
     sensor = PowerSensor(sample_interval=0.05)
-    print(f"🔍 Power Sensor Initialized: [{sensor.sensor_source.upper()}]")
+    print(f"Power Sensor Initialized: [{sensor.sensor_source.upper()}]")
 
     # Step 1: Measure Idle Baseline (3 seconds)
     print("\n[1/3] Measuring Idle Baseline Power (Standby state, 3s)...")
@@ -405,9 +373,8 @@ def run_inference_benchmark(
     time.sleep(3.0)
     idle_samples = idle_recorder.stop()
     avg_idle_w = sum(s.power_w for s in idle_samples) / max(1, len(idle_samples))
-    print(f"   ✓ Baseline Idle Power : {avg_idle_w:.3f} Watts (Current: {avg_idle_w / 5.0:.3f} A @ 5.0V)")
+    print(f"Baseline Idle Power : {avg_idle_w:.3f} Watts (Current: {avg_idle_w / 5.0:.3f} A @ 5.0V)")
 
-    # Step 2: Initialize Vision Engine
     print(f"\n[2/3] Loading Model Pipeline for '{category}'...")
     try:
         from backend.hailo_engine import HailoVisionEngine
@@ -419,35 +386,33 @@ def run_inference_benchmark(
             from pi_deployment.backend.rule_engine import evaluate_rules
             vision_engine = HailoVisionEngine()
         except Exception as e:
-            print(f"❌ Failed to load backend engines: {e}")
+            print(f"Failed to load backend engines: {e}")
             return
 
-    # Find sample image
     sample_dir = REPO_ROOT / "pi_deployment" / "sample_images" / category
     if not sample_dir.exists():
         sample_dir = CURRENT_DIR / "sample_images" / category
 
     sample_images = list(sample_dir.glob("*.png")) + list(sample_dir.glob("*.jpg"))
     if not sample_images:
-        print(f"❌ No test sample images found in {sample_dir}")
+        print(f"No test sample images found in {sample_dir}")
         return
 
     sample_img_path = sample_images[0]
-    print(f"   ✓ Input Source        : {sample_img_path.name}")
-    print(f"   ✓ Vision NPU Backend  : {'Hailo-8 Hardware' if not vision_engine.is_simulation_mode() else 'PC Simulation'}")
+    print(f"Input Source        : {sample_img_path.name}")
+    print(f"Vision NPU Backend  : {'Hailo-8 Hardware' if not vision_engine.is_simulation_mode() else 'PC Simulation'}")
 
     import cv2
     image_bgr = cv2.imread(str(sample_img_path))
     if image_bgr is None:
-        print(f"❌ Failed to decode image: {sample_img_path}")
+        print(f"Failed to decode image: {sample_img_path}")
         return
 
     # Warmup
-    print("   ✓ Warming up pipeline (3 cycles)...")
+    print("Warming up pipeline (3 cycles)...")
     for _ in range(3):
         _ = vision_engine.infer(image_bgr, model_name=category, image_name=sample_img_path.name)
 
-    # Step 3: Run Active Inference with Continuous Power Telemetry
     print(f"\n[3/3] Running {iterations} Inferences with Continuous Power Sampling...")
     active_recorder = PowerRecorder(sensor, interval_sec=0.02)
     active_recorder.npu_active = True
@@ -470,7 +435,6 @@ def run_inference_benchmark(
     total_bench_time = time.perf_counter() - t_bench_start
     active_samples = active_recorder.stop()
 
-    # Step 4: Metric Calculation
     total_energy_j = active_recorder.compute_energy_joules(duration_sec=total_bench_time)
     avg_active_w = sum(s.power_w for s in active_samples) / max(1, len(active_samples))
     peak_active_w = max(s.power_w for s in active_samples) if active_samples else 0.0
@@ -481,7 +445,6 @@ def run_inference_benchmark(
     max_lat_ms = max(latencies_ms)
     fps = 1000.0 / avg_lat_ms if avg_lat_ms > 0 else 0.0
 
-    # Energy per inference (Joules & millijoules)
     energy_per_frame_j = total_energy_j / max(1, iterations)
     energy_per_frame_mj = energy_per_frame_j * 1000.0
 
@@ -494,25 +457,25 @@ def run_inference_benchmark(
 
     # Display Results
     print("\n" + "=" * 72)
-    print("📊 INDUSTRIAL EDGE POWER & PERFORMANCE AUDIT REPORT")
+    print("INDUSTRIAL EDGE POWER & PERFORMANCE AUDIT REPORT")
     print("=" * 72)
-    print(f"  Model Category          : {category.upper()}")
-    print(f"  Hardware / Sensing Mode : {sensor.sensor_source.upper()}")
-    print(f"  Total Inferences Run    : {iterations}")
-    print(f"  Total Test Time         : {total_bench_time:.2f} s")
+    print(f"Model Category          : {category.upper()}")
+    print(f"Hardware / Sensing Mode : {sensor.sensor_source.upper()}")
+    print(f"Total Inferences Run    : {iterations}")
+    print(f"Total Test Time         : {total_bench_time:.2f} s")
     print("-" * 72)
-    print(f"  ⚡ Throughput            : {fps:6.2f} FPS")
-    print(f"  ⏱  Average Latency      : {avg_lat_ms:6.2f} ms (Min: {min_lat_ms:.1f}ms, Max: {max_lat_ms:.1f}ms)")
+    print(f"Throughput            : {fps:6.2f} FPS")
+    print(f"Average Latency      : {avg_lat_ms:6.2f} ms (Min: {min_lat_ms:.1f}ms, Max: {max_lat_ms:.1f}ms)")
     print("-" * 72)
-    print(f"  🔌 Baseline Idle Power  : {avg_idle_w:6.3f} Watts")
-    print(f"  🔥 Active Load Power    : {avg_active_w:6.3f} Watts (Peak: {peak_active_w:.3f} W)")
-    print(f"  📈 Dynamic Delta Power  : {delta_w:6.3f} Watts (+{delta_w / avg_idle_w * 100.0:.1f}%)")
+    print(f"Baseline Idle Power  : {avg_idle_w:6.3f} Watts")
+    print(f"Active Load Power    : {avg_active_w:6.3f} Watts (Peak: {peak_active_w:.3f} W)")
+    print(f"Dynamic Delta Power  : {delta_w:6.3f} Watts (+{delta_w / avg_idle_w * 100.0:.1f}%)")
     print("-" * 72)
-    print(f"  🔋 Total Energy Spent   : {total_energy_j:6.3f} Joules ({total_energy_j / 3600.0:6.4f} Wh)")
-    print(f"  💎 Energy Per Inference : {energy_per_frame_mj:6.2f} mJ / inspection ({energy_per_frame_j:.5f} J)")
-    print(f"  🏭 Energy Efficiency    : {frames_per_wh:,.0f} inspections per Watt-hour")
+    print(f"Total Energy Spent   : {total_energy_j:6.3f} Joules ({total_energy_j / 3600.0:6.4f} Wh)")
+    print(f"Energy Per Inference : {energy_per_frame_mj:6.2f} mJ / inspection ({energy_per_frame_j:.5f} J)")
+    print(f"Energy Efficiency    : {frames_per_wh:,.0f} inspections per Watt-hour")
     print("-" * 72)
-    print(f"  🔋 37Wh (10Ah) Battery  : ~{powerbank_hours:.1f} hours continuous runtime ({powerbank_frames:,.0f} inspections)")
+    print(f"37Wh (10Ah) Battery  : ~{powerbank_hours:.1f} hours continuous runtime ({powerbank_frames:,.0f} inspections)")
     print("=" * 72 + "\n")
 
     # Export if requested
@@ -537,15 +500,12 @@ def run_inference_benchmark(
             json.dump(summary_dict, f, indent=2)
         print(f"✓ Summary exported to JSON: {json_path}")
 
-
-# ============================================================================
 # Mode 3: Profile External Command
-# ============================================================================
 
 def run_cmd_profiler(cmd: str, csv_path: Optional[str] = None):
     print("\n" + "=" * 70)
-    print("⚡ Profiling Command Power Consumption")
-    print(f"   Command: {cmd}")
+    print("Profiling Command Power Consumption")
+    print(f"Command: {cmd}")
     print("=" * 70)
 
     sensor = PowerSensor(sample_interval=0.1)
@@ -568,11 +528,6 @@ def run_cmd_profiler(cmd: str, csv_path: Optional[str] = None):
     print(f"Exit Code: {ret_code} | Duration: {duration:.2f} s | Total Energy: {energy_j:.2f} J")
     _print_session_summary(samples, csv_path)
 
-
-# ============================================================================
-# Helper Utilities
-# ============================================================================
-
 def _print_session_summary(samples: List[PowerReading], csv_path: Optional[str] = None):
     if not samples:
         print("No telemetry samples recorded.")
@@ -588,26 +543,25 @@ def _print_session_summary(samples: List[PowerReading], csv_path: Optional[str] 
     min_p = min(powers)
     max_p = max(powers)
 
-    # Compute energy (trapezoidal)
+    # Energy calculation by trapezoidal
     total_j = 0.0
     for i in range(len(samples) - 1):
         dt = samples[i + 1].elapsed_sec - samples[i].elapsed_sec
         if dt > 0:
             total_j += ((samples[i].power_w + samples[i + 1].power_w) / 2.0) * dt
 
-    print("\n📊 Session Power Telemetry Summary:")
-    print(f"   Samples Captured : {len(samples)}")
-    print(f"   Average Power    : {avg_p:.3f} W (Min: {min_p:.3f} W / Peak: {max_p:.3f} W)")
-    print(f"   Average Voltage  : {sum(volts)/len(volts):.3f} V")
-    print(f"   Average Current  : {sum(currs)/len(currs):.3f} A ({sum(currs)/len(currs)*1000:.0f} mA)")
-    print(f"   Average SoC Temp : {sum(temps)/len(temps):.1f} °C (Max: {max(temps):.1f} °C)")
-    print(f"   Average CPU Load : {sum(cpus)/len(cpus):.1f} %")
-    print(f"   Total Energy     : {total_j:.2f} Joules ({total_j / 3600.0:.4f} Watt-hours)")
+    print("\nSession Power Telemetry Summary:")
+    print(f"Samples Captured : {len(samples)}")
+    print(f"Average Power    : {avg_p:.3f} W (Min: {min_p:.3f} W / Peak: {max_p:.3f} W)")
+    print(f"Average Voltage  : {sum(volts)/len(volts):.3f} V")
+    print(f"Average Current  : {sum(currs)/len(currs):.3f} A ({sum(currs)/len(currs)*1000:.0f} mA)")
+    print(f"Average SoC Temp : {sum(temps)/len(temps):.1f} °C (Max: {max(temps):.1f} °C)")
+    print(f"Average CPU Load : {sum(cpus)/len(cpus):.1f} %")
+    print(f"Total Energy     : {total_j:.2f} Joules ({total_j / 3600.0:.4f} Watt-hours)")
     print("=" * 70 + "\n")
 
     if csv_path:
         _export_to_csv(samples, csv_path)
-
 
 def _export_to_csv(samples: List[PowerReading], csv_path: str):
     p = Path(csv_path)
@@ -619,10 +573,7 @@ def _export_to_csv(samples: List[PowerReading], csv_path: str):
             writer.writerow(asdict(s))
     print(f"✓ Time-series power samples exported to CSV: {p.resolve()}")
 
-
-# ============================================================================
 # CLI Argument Parser
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

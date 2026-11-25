@@ -7,6 +7,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+!llama/*.so
 
 # Environments
 venv/
@@ -27,3 +28,13 @@ update_code.zip
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Large Model Binaries (ExecuTorch .pte > 100MB, ONNX intermediates)
+*.pte
+*.onnx
+llama_bin/
+
+# Temporary training / eval runs and datasets
+runs/
+runs_*/
+data/

@@ -1,9 +1,9 @@
 # Industrial Edge AI Quality Control Assistant
 ### Real-Time Hailo-8 Vision Defect Segmentation & On-Device ExecuTorch Llama Advisory
 
-An industrial-grade, edge-deployed machine vision and AI quality control system operating **100% on-device with zero cloud dependencies**. Designed for high-speed manufacturing conveyor lines running on **Raspberry Pi 5 with Raspberry Pi AI HAT+ (26 TOPS Hailo-8 NPU)**, backed by an intelligent on-device Small Language Model (**Llama 3.2 1B INT4 on ExecuTorch**) for Six-Sigma Certified Quality Engineer (CQE) root-cause failure mode assessment and disposition action items.
+An industrial-grade, edge-deployed machine vision and AI quality control system operating **100% on-device with zero cloud dependencies**. Designed for high-speed manufacturing conveyor lines running on **Raspberry Pi 5 with Raspberry Pi AI HAT+ (26 TOPS Hailo-8 NPU)**, backed by an intelligent on-device Small Language Model (**Llama 3.2 1B INT4 on ExecuTorch**) for root-cause failure mode assessment and disposition action items.
 
-Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local development, demo, and testing on Windows, macOS, or Linux.
+It also includes PC Simulation Mode for local development, demo, and testing on Windows, macOS, or Linux.
 
 ---
 
@@ -17,21 +17,21 @@ Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local deve
                                    ▼
        ┌────────────────────────────────────────────────────────┐
        │         Hailo-8 AI HAT+ (26 TOPS PCIe M.2 NPU)         │
-       │    YOLO11 Segmentation Model (Pure Native HailoRT)     │
+       │   YOLO Models: YOLO11-seg / YOLOv8-P2 (Native HailoRT) │
        │   ~22 ms Latency | Bounding Boxes | Polygon Masks      │
        └───────────────────────────┬────────────────────────────┘
                                    │ Anomaly BBox, Mask %, Certainty
                                    ▼
        ┌────────────────────────────────────────────────────────┐
-       │      Deterministic Physical Rule Engine (< 0.1 ms)     │
-       │   PASS / MONITOR / REJECT Triage | Defect Area Limits  │
+       │      Neuro-Fuzzy Triage Engine (< 0.05 ms)             │
+       │   Continuous Risk Score (0-100) | Fast-Path Bypass     │
        └───────────────────────────┬────────────────────────────┘
                                    │ Structured Vision Telemetry
                                    ▼
        ┌────────────────────────────────────────────────────────┐
        │     Raspberry Pi 5 ARM CPU (ExecuTorch Runtime)        │
        │       Llama 3.2 1B Instruct SpinQuant INT4 SLM         │
-       │   • Severity: [LOW / MEDIUM / HIGH / CRITICAL]         │
+       │   • Severity: [Minor / Moderate / Major / Critical]    │
        │   • Assessment: Technical failure mode & material risk │
        │   • Action: 1. Disposition, 2. Quarantine, 3. CAPA     │
        └───────────────────────────┬────────────────────────────┘
@@ -53,6 +53,8 @@ Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local deve
 - **Continuous Conveyor Mode**: Automated cycle inspection (1s to 10s intervals) with sub-millisecond deterministic triage bypass for non-stop manufacturing lines.
 - **Self-Healing Hardware Pipeline**: Thread-safe mutex locking (`RLock`) and automatic PCIe reset (`hailortcli fw-control reset`) with instant 1-shot retry to eliminate PCIe timeouts.
 - **100% Offline Standalone Operation**: Zero cloud connections, zero external font CDNs, local SQLite database, and automated CSV audit logging.
+- **Neuro-Fuzzy Edge Triage**: Continuous 0–100 risk scoring evaluating defect area percentage, model confidence, and hazard severity with sub-millisecond fast-path bypass for minor blemishes.
+- **Heterogeneous Dual-Compute Pipeline**: Hardware acceleration split between Hailo-8 NPU (vision inference in ~22 ms) and Raspberry Pi 5 ARM Cortex-A76 CPU (LLaMA 3.2 1B INT4 on ExecuTorch via `/dev/shm` RAM disk). For complete mathematical formulations, severity tiers, and hardware benchmarks, see [pi_deployment/README.md](pi_deployment/README.md).
 
 ---
 
@@ -60,38 +62,20 @@ Also includes an intelligent **Zero-Hardware PC Simulation Mode** for local deve
 
 ```text
 Defect-classifications/
-├── run_dashboard.py              # 1-Click launcher for PC Development (Simulation Mode)
-├── requirements.txt              # Python dependencies (Flask, OpenCV, NumPy, Pillow, PyYAML)
-├── README.md                     # Comprehensive documentation & deployment guide
-├── full_training/                # Production models (*_production_best.pt)
-├── HAT+ quatization/             # Hailo AI HAT+ quantization and HEF compilation tools
-│   ├── compile_hef.py            # Python compiler script (YOLO .pt -> Hailo .hef)
-│   ├── run_compiler.sh           # Dockerized runner bridging host to Ubuntu 22.04 runtime
-│   └── hef_output/               # Pre-compiled Hailo Executable Format (.hef) binaries
-└── pi_deployment/                # Complete deployment package for Raspberry Pi 5
-    ├── backend/                  # AI Engines & Hardware Abstraction
-    │   ├── hailo_engine.py       # Native HailoRT runner + self-healing PCIe reset + PC simulation
-    │   ├── llama_engine.py       # ExecuTorch Llama 3.2 1B runner + Six-Sigma CQE prompt engine
-    │   ├── rule_engine.py        # Sub-millisecond deterministic physical triage (< 0.1 ms)
-    │   ├── camera_streamer.py    # On-demand USB/CSI camera streamer with MJPEG feed
-    │   ├── alert_manager.py      # Industrial GPIO buzzer & LED indicator management
-    │   └── database.py           # SQLite audit logging & historical analytics
-    ├── dashboard/                # Industrial Web Dashboard
-    │   ├── app.py                # Decoupled 2-stage Flask API backend (< 25 ms vision response)
-    │   ├── config.py             # System telemetry, paths, and hardware monitor
-    │   ├── templates/            # Offline HTML templates (base, index, history)
-    │   └── static/               # Responsive CSS, icons, and async JavaScript polling
-    ├── models/                   # Pre-compiled Hailo-8 HEF executables (26 TOPS)
-    ├── sample_images/            # Categorized test images for models
-    ├── service/                  # Systemd service for auto-start on factory boot
-    ├── results/                  # Inference output directory (annotated images & reports)
-    ├── inference.py              # Pure Native HailoRT CLI inference engine
-    ├── evaluate_hef.py           # On-device Box & Mask mAP evaluation script
-    ├── run_dashboard.sh          # 1-Click Web Dashboard launcher for Raspberry Pi
-    ├── run_eval.sh               # 1-Click mAP evaluation runner
-    ├── run_inference.sh          # 1-Click terminal runner for images/camera
-    └── setup_pi.sh               # Automated Raspberry Pi OS setup script (~30 sec)
+├── run_dashboard.py        # 1-Click launcher for PC Development (Simulation Mode)
+├── test_dashboard.py       # Automated test suite & health check
+├── requirements.txt        # Core Python dependencies
+├── full_training/          # Production PyTorch weights & benchmark specifications
+├── HAT+ quatization/       # Hailo-8 quantization & HEF compilation pipeline
+├── llama/                  # LLaMA 3.2 1B dataset generator & INT4 export scripts
+└── pi_deployment/          # Complete edge runtime for Raspberry Pi 5 & Hailo-8
 ```
+
+Each primary directory contains its own comprehensive, dedicated documentation:
+- **[`full_training/README.md`](full_training/README.md)**: Production model training configs, dataset curation, and 90%+ mAP benchmarks.
+- **[`HAT+ quatization/README.md`](HAT+%20quatization/README.md)**: Hailo Dataflow Compiler (DFC) pipeline and Docker build environment.
+- **[`llama/README.md`](llama/README.md)**: LLaMA 3.2 1B dataset generation, LoRA fine-tuning, and INT4 ExecuTorch export.
+- **[`pi_deployment/README.md`](pi_deployment/README.md)**: Complete Raspberry Pi 5 deployment guide, Web Dashboard, and evaluation scripts.
 
 ---
 
@@ -199,19 +183,19 @@ chmod +x setup_pi.sh run_dashboard.sh run_inference.sh evaluate_hef.py run_eval.
 
 #### Step 3: Setup ExecuTorch Llama 3.2 1B (Optional but Recommended)
 To enable on-device Small Language Model advisories:
-Ensure your ExecuTorch deployment directory is placed at `~/executorch-deployment/`:
+Ensure your ExecuTorch deployment directory is placed at `/home/raspberrypi5/executorch-new/`:
 ```text
-~/executorch-deployment/
+/home/raspberrypi5/executorch-new/
 ├── llama_main                                     # ExecuTorch runner binary
 ├── libllama_runner.so                             # Dynamic runner library
-├── Llama-3.2-1B-Instruct-SpinQuant_INT4_EO8.pte   # 1B Quantized model (~650 MB)
-└── tokenizer.model                                # Llama 3 tokenizer
+├── model_int4.pte                                 # 1B Quantized model (~650 MB)
+└── tokenizer.json                                 # Llama 3 tokenizer
 ```
 
-The advisory engine automatically discovers this path and loads the 1B model on startup:
+The advisory engine automatically discovers this path and loads the model on startup:
 ```text
-[LlamaAdvisoryEngine] Found ExecuTorch at: /home/raspberrypi5/executorch-deployment
-[LlamaAdvisoryEngine] Model: Llama-3.2-1B-Instruct-SpinQuant_INT4_EO8.pte
+[LlamaAdvisoryEngine] Arm ExecuTorch Runtime Active: /home/raspberrypi5/executorch-new
+[LlamaAdvisoryEngine] Model (.pte): model_int4.pte
 ```
 
 *(If ExecuTorch is not present, the system automatically falls back to sub-millisecond fast-path Six-Sigma rule advisories without crashing).*

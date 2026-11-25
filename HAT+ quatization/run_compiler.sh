@@ -9,8 +9,8 @@ set -e
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MINIFORGE_DIR="/home/acer/miniforge3"
 
-# Ensure output directory exists
-mkdir -p "${WORKSPACE_DIR}/hef_output"
+# Ensure deployment models directory exists
+mkdir -p "${WORKSPACE_DIR}/../pi_deployment/models"
 
 echo "---------------------------------------------------------------"
 echo "  Hailo Dataflow Compiler Runner (HAT+ / Raspberry Pi 5)"

@@ -47,9 +47,7 @@ class QCInspectionDB:
             conn.commit()
 
     def add_inspection(self, data):
-        """
-        Inserts an inspection record and returns the new inspection ID.
-        """
+        # Inserts an inspection record and returns the new inspection ID.
         query = """
             INSERT INTO inspections (
                 component_id, timestamp, model_category, defect_detected, defect_class,
@@ -174,7 +172,6 @@ class QCInspectionDB:
             return output.getvalue()
 
     def update_advisory(self, inspection_id, llama_advisory, latency_llama_ms, severity=None):
-        """Updates an inspection record with asynchronous Llama advisory results."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             if severity:

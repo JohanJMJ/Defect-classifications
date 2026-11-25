@@ -1,0 +1,59 @@
+@media (max-width: 768px) {
+    .top-header {
+        padding: 10px 14px;
+        gap: 12px;
+    }
+
+    .brand-title {
+        font-size: 0.95rem;
+    }
+
+    .telemetry-hud {
+        width: 100%;
+        justify-content: space-around;
+        padding: 6px 8px;
+    }
+
+    .hud-pill {
+        font-size: 0.72rem;
+        padding: 0 4px;
+    }
+
+    .nav-links {
+        width: 100%;
+        justify-content: space-between;
+        overflow-x: auto;
+    }
+
+    .main-container {
+        padding: 12px 10px;
+    }
+
+    .control-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .flex-1 {
+        min-width: 100%;
+    }
+
+    .camera-actions-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .continuous-controls-panel {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .viewfinder-body {
+        min-height: 280px;
+    }
+
+    .modal-container {
+        padding: 16px;
+        width: 96%;
+    }
+}

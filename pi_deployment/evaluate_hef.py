@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-"""
-Comprehensive Accuracy & mAP Evaluator for Hailo-8 HEF Models
-============================================================
-Evaluates Post-Quantization Accuracy directly on Raspberry Pi AI HAT+ (26 TOPS)
-ZERO PyTorch / ZERO Ultralytics dependencies.
-Calculates:
-  - Box mAP@50 and Box mAP@50:95
-  - Mask mAP@50 and Mask mAP@50:95
-  - Precision, Recall, F1-Score
-  - Image-level Pass/Fail Industrial Inspection Accuracy
-  - Average Hardware Latency (ms) and Throughput (FPS)
-"""
-
 import argparse
 import json
 import os
@@ -20,16 +6,10 @@ import time
 from pathlib import Path
 import cv2
 import numpy as np
-
-# Import HailoRT engine and model utilities from inference.py
 from inference import HailoYOLOSegmentor, letterbox, CLASS_NAMES, resolve_model_path, list_available_models
 
 
 def parse_yolo_labels(label_path, img_w, img_h):
-    """
-    Parse YOLO segmentation polygon label file into bounding boxes and binary masks.
-    Format per line: <class_id> <x1> <y1> <x2> <y2> ... <xn> <yn>
-    """
     boxes = []
     masks = []
 
@@ -41,11 +21,8 @@ def parse_yolo_labels(label_path, img_w, img_h):
             parts = line.strip().split()
             if len(parts) < 5:
                 continue
-
             cls_id = int(parts[0])
             coords = [float(p) for p in parts[1:]]
-
-            # Reconstruct pixel coordinates
             xs = [coords[i] * img_w for i in range(0, len(coords), 2)]
             ys = [coords[i] * img_h for i in range(1, len(coords), 2)]
 
@@ -54,7 +31,6 @@ def parse_yolo_labels(label_path, img_w, img_h):
             bx2 = min(float(img_w), max(xs))
             by2 = min(float(img_h), max(ys))
 
-            # Create binary mask
             pts = np.array([[int(round(x)), int(round(y))] for x, y in zip(xs, ys)], dtype=np.int32)
             gt_mask = np.zeros((img_h, img_w), dtype=np.uint8)
             cv2.fillPoly(gt_mask, [pts], 1)
@@ -66,7 +42,6 @@ def parse_yolo_labels(label_path, img_w, img_h):
 
 
 def box_iou(box1, box2):
-    """Calculate IoU between two bounding boxes [x1, y1, x2, y2]."""
     x1 = max(box1[0], box2[0])
     y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2])
@@ -80,18 +55,14 @@ def box_iou(box1, box2):
 
 
 def mask_iou(mask1, mask2):
-    """Calculate IoU between two binary masks."""
     inter = np.logical_and(mask1, mask2).sum()
     union = np.logical_or(mask1, mask2).sum()
     return float(inter) / float(union) if union > 0 else 0.0
 
 
 def compute_ap(recall, precision):
-    """Compute Average Precision using standard 101-point COCO interpolation."""
     mrec = np.concatenate(([0.0], recall, [1.0]))
     mpre = np.concatenate(([1.0], precision, [0.0]))
-
-    # Compute precision envelope
     for i in range(len(mpre) - 1, 0, -1):
         mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
 
@@ -101,11 +72,6 @@ def compute_ap(recall, precision):
 
 
 def evaluate_matches(all_preds, all_gts, iou_thresholds, is_mask=False):
-    """
-    Match predictions to ground truth across multiple IoU thresholds.
-    all_preds: list of dicts with 'img_id', 'bbox', 'mask', 'conf'
-    all_gts: list of dicts with 'img_id', 'bbox', 'mask'
-    """
     total_gts = len(all_gts)
     if total_gts == 0:
         return 0.0, 0.0, 0.0, 0.0
@@ -116,7 +82,6 @@ def evaluate_matches(all_preds, all_gts, iou_thresholds, is_mask=False):
     # Sort all predictions by confidence descending
     sorted_preds = sorted(all_preds, key=lambda x: x["conf"], reverse=True)
 
-    # Group GTs by img_id for fast lookup
     gt_by_img = {}
     for gt in all_gts:
         gt_by_img.setdefault(gt["img_id"], []).append(gt)
@@ -213,7 +178,7 @@ def main():
     model_path = resolve_model_path(selected_model_arg, models_dir)
 
     if model_path is None or not model_path.exists():
-        print(f"❌ Error: Model '{selected_model_arg}' could not be resolved.")
+        print(f"Error: Model '{selected_model_arg}' could not be resolved.")
         list_available_models(models_dir, sample_images_dir)
         sys.exit(1)
 
@@ -223,19 +188,19 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not images_dir.exists():
-        print(f"❌ Error: Images directory not found at {images_dir}")
+        print(f"Error: Images directory not found at {images_dir}")
         sys.exit(1)
 
     category = model_path.stem.split("_")[0].upper()
     print("=" * 70)
-    print("📊 Hailo-8 Quantized Model mAP & Accuracy Evaluation")
-    print(f"   Category    : {category}")
-    print(f"   Model       : {model_path.name}")
-    print(f"   Model Path  : {model_path}")
-    print(f"   Images Dir  : {images_dir}")
-    print(f"   Labels Dir  : {labels_dir}")
-    print(f"   Confidence  : {args.conf}")
-    print(f"   IoU NMS     : {args.iou}")
+    print("Hailo-8 Quantized Model mAP & Accuracy Evaluation")
+    print(f"Category    : {category}")
+    print(f"Model       : {model_path.name}")
+    print(f"Model Path  : {model_path}")
+    print(f"Images Dir  : {images_dir}")
+    print(f"Labels Dir  : {labels_dir}")
+    print(f"Confidence  : {args.conf}")
+    print(f"IoU NMS     : {args.iou}")
     print("=" * 70)
 
     # Load Hailo engine
@@ -243,7 +208,7 @@ def main():
     try:
         engine = HailoYOLOSegmentor(model_path)
     except Exception as e:
-        print(f"❌ Failed to initialize Hailo-8: {e}")
+        print(f"Failed to initialize Hailo-8: {e}")
         sys.exit(1)
 
     # Collect images
@@ -252,10 +217,10 @@ def main():
     )
 
     if len(image_paths) == 0:
-        print("❌ Error: No images found in dataset directory.")
+        print("Error: No images found in dataset directory.")
         sys.exit(1)
 
-    print(f"🔍 Found {len(image_paths)} images to evaluate.")
+    print(f"Found {len(image_paths)} images to evaluate.")
     print("Running hardware inference and collecting ground truth...")
 
     all_preds_box = []
@@ -266,7 +231,6 @@ def main():
     latencies = []
     per_image_results = []
 
-    # Industrial Inspection Confusion Matrix (Pass vs Fail)
     cm = {"true_negative": 0, "true_positive": 0, "false_positive": 0, "false_negative": 0}
 
     for idx, img_p in enumerate(image_paths, 1):
@@ -295,8 +259,6 @@ def main():
         latencies.append(lat)
 
         is_predicted_defective = len(detections) > 0
-
-        # Update Image-level Confusion Matrix
         if not is_actually_defective and not is_predicted_defective:
             cm["true_negative"] += 1  # Correct Pass
         elif is_actually_defective and is_predicted_defective:
@@ -352,23 +314,22 @@ def main():
     print(f"{'anomaly':<12} {total_imgs:<8} {len(all_gts_box):<10} {box_map50:<11.3f} {box_map50_95:<13.3f} {mask_map50:<12.3f} {mask_map50_95:<13.3f}")
     print("=" * 70)
 
-    print("\n📋 Detailed Metric Breakdown:")
-    print(f"   • Box Precision (P)    : {box_p:.3f}")
-    print(f"   • Box Recall (R)       : {box_r:.3f}")
-    print(f"   • Box F1-Score         : {box_f1:.3f}")
-    print(f"   • Mask Precision (P)   : {mask_p:.3f}")
-    print(f"   • Mask Recall (R)      : {mask_r:.3f}")
-    print(f"   • Mask F1-Score        : {mask_f1:.3f}")
-    print(f"   • Hardware Latency     : {avg_latency:.2f} ms ({fps:.1f} FPS)")
+    print("\nDetailed Metric Breakdown:")
+    print(f"Box Precision (P)    : {box_p:.3f}")
+    print(f"Box Recall (R)       : {box_r:.3f}")
+    print(f"Box F1-Score         : {box_f1:.3f}")
+    print(f"Mask Precision (P)   : {mask_p:.3f}")
+    print(f"Mask Recall (R)      : {mask_r:.3f}")
+    print(f"Mask F1-Score        : {mask_f1:.3f}")
+    print(f"Hardware Latency     : {avg_latency:.2f} ms ({fps:.1f} FPS)")
 
-    print("\n🏭 Industrial Pass / Fail Classification Accuracy:")
-    print(f"   • Overall Accuracy     : {image_acc:.1f}% ({correct_imgs}/{total_imgs} images)")
-    print(f"   • True Negatives (Pass): {cm['true_negative']}")
-    print(f"   • True Positives (Def) : {cm['true_positive']}")
-    print(f"   • False Alarms (FP)    : {cm['false_positive']}")
-    print(f"   • Missed Defects (FN)  : {cm['false_negative']}")
+    print("\nIndustrial Pass / Fail Classification Accuracy:")
+    print(f"Overall Accuracy     : {image_acc:.1f}% ({correct_imgs}/{total_imgs} images)")
+    print(f"True Negatives (Pass): {cm['true_negative']}")
+    print(f"True Positives (Def) : {cm['true_positive']}")
+    print(f"False Alarms (FP)    : {cm['false_positive']}")
+    print(f"Missed Defects (FN)  : {cm['false_negative']}")
 
-    # Save detailed JSON report
     report = {
         "model": model_path.name,
         "dataset_images": total_imgs,
@@ -400,7 +361,7 @@ def main():
     with open(output_path, "w") as f:
         json.dump(report, f, indent=2)
 
-    print(f"\n✅ Full evaluation report saved to: {output_path}")
+    print(f"\nFull evaluation report saved to: {output_path}")
 
 
 if __name__ == "__main__":

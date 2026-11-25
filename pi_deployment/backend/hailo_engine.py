@@ -1,8 +1,3 @@
-"""
-HailoRT Vision Engine for Raspberry Pi AI HAT+ (26 TOPS)
-With Built-in Mock/Simulation Engine for PC Development and Testing.
-"""
-
 import os
 from pathlib import Path
 import time
@@ -68,7 +63,6 @@ STEEL_CLASSES = MODEL_CLASSES["steel_defects"]
 
 
 def get_model_classes(model_name, models_dir=None):
-    """Retrieve defect class dictionary for a model, checking models.yaml then MODEL_CLASSES."""
     try:
         import yaml
         yaml_path = (Path(models_dir) if models_dir else Path(__file__).resolve().parent.parent / "models") / "models.yaml"
@@ -164,7 +158,7 @@ class HailoVisionEngine:
         return self.force_simulation
 
     def _get_sample_annotations(self):
-        """Lazily load ground-truth annotations for sample images."""
+        # loading ground-truth annotations for sample images
         if self._sample_annotations is None:
             import json
             ann_path = Path(__file__).resolve().parent.parent / "sample_images" / "sample_annotations.json"
@@ -215,12 +209,6 @@ class HailoVisionEngine:
         return True
 
     def infer(self, image_bgr, model_name="steel_defects", conf_thresh=0.25, iou_thresh=0.50, image_name=None):
-        """
-        Runs visual inference on an input BGR OpenCV image.
-        Returns:
-            detections: list of defect dicts
-            latency_ms: time taken in milliseconds
-        """
         if self.force_simulation:
             return self._infer_simulation(image_bgr, model_name, conf_thresh, image_name=image_name)
 
@@ -228,14 +216,8 @@ class HailoVisionEngine:
         self.load_model(model_name)
         return self.active_segmentor.predict(image_bgr, conf_thresh, iou_thresh)
 
+    # simulation mode for testing
     def _infer_simulation(self, image_bgr, model_name, conf_thresh=0.25, image_name=None):
-        """
-        Accurate simulation mode for PC testing without Hailo hardware.
-        Priority:
-          1. Clean PASS if image name indicates normal/good sample
-          2. Ground-truth annotation lookup if image matches sample library
-          3. Multi-modal CV contour detection for unknown/custom uploaded images
-        """
         t0 = time.perf_counter()
         h, w = image_bgr.shape[:2]
 
@@ -294,7 +276,7 @@ class HailoVisionEngine:
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (7, 7), 0)
 
-        # Threshold / Edge detection to locate high-contrast anomalies
+        # Edge detection to locate the high-contrast anomalies
         thresh = cv2.adaptiveThreshold(
             blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 4
         )
@@ -334,7 +316,6 @@ class HailoVisionEngine:
                     "mask_array": mask,
                 })
 
-        # Artificial simulated latency matching Hailo-8 (11-14 ms)
         elapsed_real = (time.perf_counter() - t0) * 1000.0
         target_sim_latency = 11.8  # Hailo-8 typical speed
         sim_latency = max(elapsed_real, target_sim_latency)
@@ -373,7 +354,6 @@ class HailoVisionEngine:
 
         cv2.addWeighted(overlay, 0.4, annotated, 0.6, 0, annotated)
 
-        # Top Status HUD
         hud_parts = []
         if latency_ms is not None:
             npu_tag = "Hailo-8" if not self.force_simulation else "Simulated NPU"
@@ -521,7 +501,6 @@ class _NativeHailoSegmentor:
             elif output.size % 5 == 0:
                 output = output.reshape(1, -1, 5)
 
-        # Case A: Grouped by class: [num_classes, max_boxes, 5] -> [ymin, xmin, ymax, xmax, score]
         if isinstance(output, (list, tuple)) or (isinstance(output, np.ndarray) and output.ndim >= 2 and output.shape[-1] == 5):
             for class_id, class_dets in enumerate(output):
                 if class_dets is None or len(class_dets) == 0:
@@ -569,7 +548,6 @@ class _NativeHailoSegmentor:
                         "mask_array": final_mask,
                     })
 
-        # Case B: Detections array [N, 6] -> [ymin, xmin, ymax, xmax, score, class_id]
         elif isinstance(output, np.ndarray) and output.ndim == 2 and output.shape[-1] >= 6:
             for det in output:
                 score = float(det[4])

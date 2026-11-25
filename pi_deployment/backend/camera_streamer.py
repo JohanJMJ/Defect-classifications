@@ -1,14 +1,7 @@
-"""
-Camera Streamer for WebCam / USB Camera / Raspberry Pi Camera.
-Provides on-demand camera access (camera stays OFF until the Live tab is opened),
-continuous frame streaming, and graceful resource release.
-"""
-
 import threading
 import time
 import cv2
 import numpy as np
-
 
 class CameraStreamer:
     def __init__(self, camera_index=0, width=640, height=480):
@@ -19,12 +12,10 @@ class CameraStreamer:
         self.lock = threading.Lock()
         self.active_viewers = 0
         self.last_frame = None
-        # Camera is deliberately NOT opened here to prevent the camera LED/hardware
-        # from being powered on when the server starts. It is activated on-demand.
+
         print(f"[CameraStreamer] Initialized in STANDBY mode (Hardware camera is OFF).")
 
     def open_camera(self):
-        """Activates physical camera hardware if not already open."""
         with self.lock:
             if self.cap is not None and self.cap.isOpened():
                 return True
@@ -34,6 +25,12 @@ class CameraStreamer:
                 import platform
                 if platform.system() == "Linux":
                     self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
+                    if self.cap and self.cap.isOpened():
+                        # Set MJPG codec on Linux/Pi to ensure full framerate and bandwidth headroom
+                        try:
+                            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                        except Exception:
+                            pass
                 else:
                     self.cap = cv2.VideoCapture(self.camera_index)
 
@@ -44,7 +41,7 @@ class CameraStreamer:
                     # Set resolution
                     self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                     self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-                    # Minimize internal driver buffer to prevent stale / delayed frames
+                    # Minimize internal driver buffer to prevent stale or delayed frames
                     try:
                         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                     except Exception:
@@ -61,7 +58,6 @@ class CameraStreamer:
                 return False
 
     def release(self):
-        """Immediately turns off camera hardware and frees device handle."""
         with self.lock:
             if self.cap is not None:
                 try:
@@ -80,34 +76,53 @@ class CameraStreamer:
         with self.lock:
             if self.cap is not None and self.cap.isOpened():
                 ret, frame = self.cap.read()
-                if ret:
+                if ret and frame is not None:
                     self.last_frame = frame
                     return frame
+            # If camera frame drop occurred but a recent frame is cached, keep video feed continuous
+            if self.last_frame is not None:
+                return self.last_frame
 
         return self._create_test_card()
 
     def capture_snapshot(self):
-        """
-        Captures a single BGR frame for inspection.
-        If camera is currently idle, opens it momentarily for snapshot and releases.
-        """
+        # Captures a single real BGR frame for AI inspection.
+        # If live stream is active, instantly returns the latest live frame (zero contention/latency).
+        # If camera is currently idle, opens it momentarily, flushes buffer for AE/AWB settling,
+        # captures the frame, and safely releases.
+        # Returns None if physical camera is unavailable (NEVER returns the synthetic test card).
+
+        with self.lock:
+            if self.cap is not None and self.cap.isOpened() and self.last_frame is not None:
+                return self.last_frame.copy()
+
+        # Slow-Path: Camera is idle or hasn't produced a frame yet
         should_release = False
         with self.lock:
             camera_was_idle = (self.cap is None or not self.cap.isOpened())
 
         if camera_was_idle:
             success = self.open_camera()
+            if not success:
+                return None
             should_release = True
-            # Flush initial buffer frames so sensor auto-exposure (AE) and white balance (AWB) settle
-            if success and self.cap is not None:
-                for _ in range(6):
-                    self.cap.read()
-                    time.sleep(0.03)
-            else:
-                time.sleep(0.15)
+            # Flush initial buffer frames so sensor auto-exposure (AE) and auto-white-balance (AWB) settle
+            if self.cap is not None:
+                for _ in range(8):
+                    ret, f = self.cap.read()
+                    if ret and f is not None:
+                        self.last_frame = f
+                    time.sleep(0.04)
 
-        frame = self.get_frame()
-        result = frame.copy() if frame is not None else self._create_test_card()
+        result = None
+        with self.lock:
+            if self.cap is not None and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    self.last_frame = frame
+                    result = frame.copy()
+            if result is None and self.last_frame is not None:
+                result = self.last_frame.copy()
 
         if should_release and self.active_viewers == 0:
             self.release()
@@ -136,7 +151,6 @@ class CameraStreamer:
         return img
 
     def generate_mjpeg(self):
-        """Generator for Flask MJPEG streaming endpoint with ref-counting."""
         self.open_camera()
         with self.lock:
             self.active_viewers += 1
@@ -156,7 +170,7 @@ class CameraStreamer:
             with self.lock:
                 self.active_viewers = max(0, self.active_viewers - 1)
                 if self.active_viewers == 0:
-                    # No one is watching the stream anymore: release camera hardware!
+                    # No one is watching the stream anymore: release camera hardware
                     if self.cap is not None:
                         try:
                             self.cap.release()
